@@ -1,9 +1,9 @@
-# 🏢 CaSee Intelligence MCP Server
+# CaSee Intelligence MCP Server
 
 *Enterprise Competitive Intelligence Retrieval for AI Agents — Built on MCP (Model Context Protocol)*
 
 <p align="center">
-  <img src="imgs/casee_os_banner.png" alt="CaSee Intelligence MCP Server" width="800">
+  <img src="imgs/casee_os_banner.png" alt="CaSee Intelligence MCP Server" width="1000">
 </p>
 
 <p align="center">
@@ -44,7 +44,7 @@ Built for market, sales, product, and strategy teams of mid-to-large enterprises
 
 
 <p align="center">
-  <img src="imgs/001.png" alt="CaSee Logo" width="120">
+  <img src="imgs/001.png" alt="CaSee Logo" width="1000">
 </p>
 
 ***
@@ -636,7 +636,7 @@ A market intelligence team at an automotive OEM needs to track the global **New 
 
 ---
 <p align="center">
-  <img src="imgs/002.png" alt="CaSee Logo" width="120">
+  <img src="imgs/002.png" alt="CaSee Logo" width="1000">
 </p>
 
 
@@ -721,7 +721,7 @@ curl -G -H "X-API-Key: $CASEE_API_KEY" \
   --data-urlencode 'limit=50'
 ```
 <p align="center">
-  <img src="imgs/003.png" alt="CaSee Logo" width="120">
+  <img src="imgs/003.png" alt="CaSee Logo" width="1000">
 </p>
 
 
@@ -787,7 +787,7 @@ For all three, the agent applies the same four-step pattern: **define query → 
 
 ---
 <p align="center">
-  <img src="imgs/004.png" alt="CaSee Logo" width="120">
+  <img src="imgs/004.png" alt="CaSee Logo" width="1000">
 </p>
 
 ### Business Value of This Workflow
