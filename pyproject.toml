@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "casee-mcp-server"
+version = "1.0.0"
+description = "CaSee Intelligence MCP Server — enterprise competitive intelligence retrieval for AI Agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "CaSee Team", email = "dev@casee.local" },
+]
+keywords = [
+    "casee",
+    "mcp",
+    "model-context-protocol",
+    "competitive-intelligence",
+    "ai-agent",
+    "intelligence-retrieval",
+    "claude",
+    "langchain",
+    "crewai",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "casee>=1.4.0",
+    "mcp>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.scripts]
+casee-mcp = "casee_mcp_server.__main__:main"
+
+[tool.setuptools]
+packages = ["casee_mcp_server"]
+package-dir = { "" = "src" }
+
+[tool.setuptools.package-data]
+casee_mcp_server = ["py.typed"]
