@@ -15,7 +15,7 @@
 
 ***
 
-## 🌐 About CaSee — AI-Driven Competitive Intelligence Platform
+## About CaSee — AI-Driven Competitive Intelligence Platform
 
 **CaSee** is an **AI-driven competitive intelligence & market insight platform** — "Win by strategy, sense opportunities first, decide a thousand miles ahead".
 
@@ -41,6 +41,11 @@ Built for market, sales, product, and strategy teams of mid-to-large enterprises
 > **Trusted Intelligence Assurance**: Quantified T-Score credibility scoring, multi-source cross-validation, causal-reasoning bias detection, and compliance guardrails prevent AI agent hallucination, stale data, and false citations.
 
 > **Try CaSee**: <https://casee.me> — get your API key and explore the platform.
+
+
+<p align="center">
+  <img src="imgs/001.png" alt="CaSee Logo" width="120">
+</p>
 
 ***
 
@@ -630,6 +635,10 @@ A market intelligence team at an automotive OEM needs to track the global **New 
 | **Time window** | last 30 days |
 
 ---
+<p align="center">
+  <img src="imgs/002.png" alt="CaSee Logo" width="120">
+</p>
+
 
 ### Step 1 — Define the Intelligence Requirement
 
@@ -711,6 +720,10 @@ curl -G -H "X-API-Key: $CASEE_API_KEY" \
   --data-urlencode 'days=30' \
   --data-urlencode 'limit=50'
 ```
+<p align="center">
+  <img src="imgs/003.png" alt="CaSee Logo" width="120">
+</p>
+
 
 **Via MCP (call from your agent):**
 
@@ -773,6 +786,9 @@ The same pattern works for any vertical. Three additional scenarios documented a
 For all three, the agent applies the same four-step pattern: **define query → `find_trusted_sources` → `search_intelligence` → analyze / aggregate / trend → summarize**.
 
 ---
+<p align="center">
+  <img src="imgs/004.png" alt="CaSee Logo" width="120">
+</p>
 
 ### Business Value of This Workflow
 
