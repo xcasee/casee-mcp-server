@@ -7,10 +7,6 @@
 </p>
 
 <p align="center">
-  <img src="imgs/casee_logo.png" alt="CaSee Logo" width="120">
-</p>
-
-<p align="center">
   <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.0.0-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
