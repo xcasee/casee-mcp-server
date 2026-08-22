@@ -58,9 +58,14 @@ It bridges two worlds:
 - **CaSee's trusted intelligence backend** — 500+ trusted intelligence sources with T-Score credibility, real-time competitive dynamics, and quantified analysis
 - **Your AI Agent** — any LLM application that speaks MCP (stdio or Streamable-HTTP)
 
-With casee-mcp-server, your AI agents gain **real-time, trusted-source intelligence retrieval** from the CaSee platform — turning them from generic chat tools into verifiable competitive intelligence analysts that can search trusted sources, run complex logic retrieval, analyze trends, aggregate by source, and check statistics — all through 5 simple MCP tools.
+With casee-mcp-server, your AI agents gain **real-time, trusted-source intelligence retrieval** from the CaSee platform — turning them from generic chat tools into verifiable competitive intelligence analysts that can search trusted sources, run complex logic retrieval, analyze trends, and aggregate by source — all through 4 simple MCP tools.
 
 ***
+
+<p align="center">
+  <img src="imgs/002.png" alt="CaSee Logo" width="1000">
+</p>
+
 
 ## 🤖 Why casee-mcp-server?
 
@@ -77,7 +82,7 @@ LLM AI Agents (Claude, GPT, etc.) can generate competitive intelligence reports,
 | **Source Trust**    | Unknown / hallucinated | 500+ trusted intelligence sources with tscore (0-1) credibility scoring     |
 | **Data Freshness**  | Training cutoff date   | Real-time, configurable time window (1-365 days)               |
 | **Query Precision** | Natural language only  | Class-Google syntax: `+AND` / `-NOT` / `"phrase"` / `(groups)` |
-| **Analysis Depth**  | Surface-level summary  | Trend analysis + source aggregation + statistical overview     |
+| **Analysis Depth**  | Surface-level summary  | Trend analysis + source aggregation                             |
 | **Traceability**    | None                   | Every result links to specific source, date, and tscore        |
 
 > **Core Value**: Transforms AI Agents from "chat tools" into **trusted competitive intelligence analysis systems** — with timely, traceable, and quantifiable intelligence.
@@ -160,7 +165,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-You should see all **5 tools**: `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `get_intelligence_stats`.
+You should see all **4 tools**: `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`.
 
 #### Step 6: Run with Docker (recommended for production)
 
@@ -184,7 +189,7 @@ No installation needed. The server is already deployed and running:
 ```
 MCP endpoint : https://casee.me:8100/mcp
 Transport    : Streamable-HTTP
-Server       : casee (5 MCP tools)
+Server       : casee (4 MCP tools)
 Backend      : CaSee Intelligence Server (auto-resolved)
 ```
 
@@ -200,7 +205,7 @@ Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plu
 
 ## 🧰 MCP Tools
 
-The server exposes **5 MCP Tools** for AI Agents:
+The server exposes **4 MCP Tools** for AI Agents:
 
 | Tool                     | Description                                                     | Key Parameters                                         |
 | ------------------------ | --------------------------------------------------------------- | ------------------------------------------------------ |
@@ -208,7 +213,6 @@ The server exposes **5 MCP Tools** for AI Agents:
 | `search_intelligence`    | Complex logic retrieval: AND/OR/NOT/phrase/synonym groups       | `q` (query syntax), `source_ids`, `min_tscore`, `days` |
 | `analyze_trend`          | Time-series trend analysis of intelligence volume               | `q`, `source_ids`, `days`                              |
 | `aggregate_by_source`    | Aggregate by source: count, avg tscore, sample titles           | `q`, `source_ids`, `days`                              |
-| `get_intelligence_stats` | Database overview: total intelligence, sources, today's items   | —                                                      |
 
 ### Two-Stage Trusted Retrieval Workflow
 
@@ -281,7 +285,7 @@ Fully quit (Cmd+Q / Alt+F4) and relaunch Claude Desktop so it re-reads the confi
 
 #### Step 5: Verify the tools
 
-Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **5 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `get_intelligence_stats`).
+Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **4 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`).
 
 #### Step 6: Try it
 
@@ -354,7 +358,7 @@ Save `.workbuddy/mcp.json`, then trigger a config reload in WorkBuddy (typically
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with its **5 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `get_intelligence_stats`).
+Open the MCP tool panel. You should see `casee-intelligence` with its **4 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`).
 
 #### Step 5: Try it
 
@@ -415,7 +419,7 @@ Reload the MCP configuration (or restart Trae Work) so it picks up the new serve
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with **5 tools**. Enable the ones you need.
+Open the MCP tool panel. You should see `casee-intelligence` with **4 tools**. Enable the ones you need.
 
 #### Step 5: Ask for intelligence
 
@@ -602,7 +606,7 @@ curl -X POST http://localhost:8100/mcp \
 │                    casee-mcp-server (this project)                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Tools: find_trusted_sources / search_intelligence /     │   │
-│  │         analyze_trend / aggregate_by_source / stats      │   │
+│  │         analyze_trend / aggregate_by_source              │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  casee SDK (search_sources / search_advanced / ...)       │   │
@@ -619,7 +623,7 @@ curl -X POST http://localhost:8100/mcp \
 
 ## 🎯 Use Cases — Competitive Intelligence in Action
 
-This chapter walks through a complete, end-to-end competitive intelligence workflow, applied through `casee-mcp-server`'s 5 MCP tools. Every step is given both as a **direct API call** and as the equivalent **MCP Tool invocation** your AI agent will use.
+This chapter walks through a complete, end-to-end competitive intelligence workflow, applied through `casee-mcp-server`'s 4 MCP tools. Every step is given both as a **direct API call** and as the equivalent **MCP Tool invocation** your AI agent will use.
 
 ### Scenario — Global EV Market Intelligence
 
@@ -636,7 +640,7 @@ A market intelligence team at an automotive OEM needs to track the global **New 
 
 ---
 <p align="center">
-  <img src="imgs/002.png" alt="CaSee Logo" width="1000">
+  <img src="imgs/003.png" alt="CaSee Logo" width="1000">
 </p>
 
 
@@ -721,7 +725,7 @@ curl -G -H "X-API-Key: $CASEE_API_KEY" \
   --data-urlencode 'limit=50'
 ```
 <p align="center">
-  <img src="imgs/003.png" alt="CaSee Logo" width="1000">
+  <img src="imgs/004.png" alt="CaSee Logo" width="1000">
 </p>
 
 
@@ -786,9 +790,6 @@ The same pattern works for any vertical. Three additional scenarios documented a
 For all three, the agent applies the same four-step pattern: **define query → `find_trusted_sources` → `search_intelligence` → analyze / aggregate / trend → summarize**.
 
 ---
-<p align="center">
-  <img src="imgs/004.png" alt="CaSee Logo" width="1000">
-</p>
 
 ### Business Value of This Workflow
 
@@ -796,10 +797,10 @@ For all three, the agent applies the same four-step pattern: **define query → 
 |--------------|------------------|
 | **Traceable answers** | Every item links to a `source_id`, `published_at`, and `tscore` — no hallucination |
 | **Quantified credibility** | `tscore` (0-1) is computed from tier, category, state-affiliation, propaganda risk |
-| **Multi-dimensional analysis** | Trend, source-aggregate, vendor-aggregate, statistical overview — all native MCP tools |
+| **Multi-dimensional analysis** | Trend, source-aggregate, vendor-aggregate — all native MCP tools   |
 | **Real-time freshness** | `days` parameter (1-365) lets you mix long-window trends with short-window hot signals |
 | **Lower manual effort** | Replaces "search → read → filter → copy-paste" with one agent prompt |
-| **Pluggable into any stack** | Same 5 tools work from Claude Desktop, WorkBuddy, Trae Work, LangChain, CrewAI |
+| **Pluggable into any stack** | Same 4 tools work from Claude Desktop, WorkBuddy, Trae Work, LangChain, CrewAI |
 
 ***
 

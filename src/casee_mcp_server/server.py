@@ -2,12 +2,11 @@
 
 将 CaSee 竞争情报检索能力封装为 MCP Tools，供 AI Agent 调用。
 
-提供 5 个 MCP Tool：
+提供 4 个 MCP Tool：
 - find_trusted_sources: 信源检索
 - search_intelligence: 复杂逻辑情报检索
 - analyze_trend: 趋势分析
 - aggregate_by_source: 信源聚合分析
-- get_intelligence_stats: 统计概览
 
 启动方式:
     # stdio 模式（WorkBuddy / Claude Desktop 推荐）
@@ -20,7 +19,7 @@
 import os
 from collections import Counter, defaultdict
 from mcp.server import MCPServer
-from casee import search_sources, search_advanced, get_stats
+from casee import search_sources, search_advanced
 
 mcp = MCPServer(
     name="casee",
@@ -276,19 +275,6 @@ def aggregate_by_source(
         "total_sources": len(sources),
         "sources": sources,
     }
-
-
-# ---- Tool 5: 统计概览 ----
-
-
-@mcp.tool()
-def get_intelligence_stats() -> dict:
-    """获取情报数据库整体统计信息：总情报量、信源数、今日新增等。
-
-    Returns:
-        dict: {total_intelligence, total_sources, total_sensors, today_items, ...}
-    """
-    return get_stats()
 
 
 def main():
