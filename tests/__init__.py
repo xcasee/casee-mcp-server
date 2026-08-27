@@ -1,0 +1,1 @@
+# casee-mcp-server test package

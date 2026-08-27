@@ -9,7 +9,9 @@ __pycache__/
 dist/
 build/
 *.egg
-*.whl
+
+# Allow pinned SDK wheel (required by scripts/deploy_production.sh)
+!casee-[0-9]*-py3-none-any.whl
 
 # IDE
 .idea/

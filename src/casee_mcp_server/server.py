@@ -2,11 +2,13 @@
 
 将 CaSee 竞争情报检索能力封装为 MCP Tools，供 AI Agent 调用。
 
-提供 4 个 MCP Tool：
+提供 6 个 MCP Tool：
 - find_trusted_sources: 信源检索
 - search_intelligence: 复杂逻辑情报检索
 - analyze_trend: 趋势分析
 - aggregate_by_source: 信源聚合分析
+- semantic_search: 语义检索（基于 CVC 模型的两阶段混合检索）
+- search_with_cvc: 带 CVC 归集的高级检索
 
 启动方式:
     # stdio 模式（WorkBuddy / Claude Desktop 推荐）
@@ -17,14 +19,53 @@
 """
 
 import os
+import re
 from collections import Counter, defaultdict
 from mcp.server import MCPServer
-from casee import search_sources, search_advanced
+from casee import search_sources, search_advanced, semantic_search
+from casee.exceptions import CaseeError, AuthenticationError
+
 
 mcp = MCPServer(
     name="casee",
-    description="CaSee 企业竞争情报检索服务 —— 可信信源查询 + 复杂逻辑情报检索 + 趋势分析",
+    description="CaSee 企业竞争情报检索服务 —— 可信信源查询 + 复杂逻辑情报检索 + 趋势分析 + 语义检索",
 )
+
+
+def _sdk_call(fn, **kwargs):
+    """Wrap an SDK call so any exception becomes a structured error dict
+    instead of an uncaught exception that surfaces as an opaque MCP failure.
+    """
+    try:
+        return fn(**kwargs)
+    except CaseeError as exc:
+        return {
+            "error": exc.__class__.__name__,
+            "message": str(exc),
+            "hint": _diagnose_sdk_error(exc),
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        return {
+            "error": "UnexpectedError",
+            "message": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def _diagnose_sdk_error(exc: CaseeError) -> str:
+    """Best-effort hint based on the error type/message."""
+    msg = str(exc)
+    if "HTML" in msg and ("CASEE_API_BASE_URL" in msg or "web page" in msg or "landing page" in msg):
+        return (
+            "CASEE_API_BASE_URL 指向了一个网页而非 CaSee API 服务器。"
+            "请检查 MCP Server 环境变量 CASEE_API_BASE_URL 是否指向了 FastAPI 服务端口"
+            "（例如 http://host.docker.internal:8000 或宿主 IP:8000），"
+            "而不是门户网站/静态站点。"
+        )
+    if isinstance(exc, AuthenticationError):
+        return "API Key 无效或缺失，请检查 CASEE_API_KEY 环境变量。"
+    if "timed out" in msg.lower():
+        return "请求超时，请稍后重试或增大 CASEE_TIMEOUT。"
+    return ""
 
 # ---- Tool 1: 信源检索 ----
 
@@ -61,7 +102,8 @@ def find_trusted_sources(
     Returns:
         dict: {count, total, sources: [{source_id, name, tscore, category, sample_data, ...}]}
     """
-    return search_sources(
+    return _sdk_call(
+        search_sources,
         keyword=keyword or None,
         category=category or None,
         region=region or None,
@@ -123,7 +165,8 @@ def search_intelligence(
     Returns:
         dict: {count, items: [{title, description, source_id, tscore, published_at, ...}]}
     """
-    return search_advanced(
+    return _sdk_call(
+        search_advanced,
         q=q,
         source_ids=source_ids,
         must_keywords=must_keywords.split(",") if must_keywords else None,
@@ -168,10 +211,13 @@ def analyze_trend(
     Returns:
         dict: {trend: [{date, count, top_sources, top_keywords}], summary: {...}}
     """
-    result = search_advanced(
+    result = _sdk_call(
+        search_advanced,
         q=q, source_ids=source_ids, min_tscore=min_tscore,
         days=days, limit=limit,
     )
+    if isinstance(result, dict) and "error" in result:
+        return result
     items = result.get("organic_results", []) or result.get("items", [])
 
     by_date = defaultdict(lambda: {"count": 0, "sources": Counter(), "keywords": Counter()})
@@ -242,10 +288,13 @@ def aggregate_by_source(
     Returns:
         dict: {sources: [{source_id, name, count, avg_tscore, sample_titles}]}
     """
-    result = search_advanced(
+    result = _sdk_call(
+        search_advanced,
         q=q, source_ids=source_ids, min_tscore=min_tscore,
         days=days, limit=limit,
     )
+    if isinstance(result, dict) and "error" in result:
+        return result
     items = result.get("organic_results", []) or result.get("items", [])
 
     by_source = defaultdict(lambda: {"count": 0, "tscores": [], "titles": []})
@@ -275,6 +324,187 @@ def aggregate_by_source(
         "total_sources": len(sources),
         "sources": sources,
     }
+
+
+# ---- Tool 5: 语义检索（基于 CVC 模型）----
+
+
+@mcp.tool()
+def semantic_search_tool(
+    cvc_model_id: str,
+    q: str,
+    mode: str = "hybrid",
+    top_k: int = 20,
+    time_range: str = "",
+    days: int = 0,
+    category: str = "",
+    region: str = "",
+    language: str = "",
+    min_tscore: float = 0.0,
+) -> dict:
+    """基于 CVC 模型的语义检索：BM25 + 向量 ANN + RRF 融合的两阶段检索。
+
+    适用场景：
+    - 竞品技术路线对比分析
+    - 市场趋势深度研判
+    - 客户需求语义洞察
+    - 跨语种情报关联分析
+
+    检索模式：
+    - ``hybrid``（默认）：关键词检索 + 向量语义检索 + RRF 融合
+    - ``semantic``：纯向量语义检索（适用于概念性、抽象性查询）
+    - ``keyword``：纯关键词检索（适用于精确匹配场景）
+
+    Args:
+        cvc_model_id: CVC 模型 ID，格式 ``^cvc_[a-z0-9]{8,32}$``（必填）
+        q: 查询文本，支持自然语言，如 "竞争对手在东南亚的电动化布局战略"
+        mode: 检索模式，可选值：hybrid / semantic / keyword
+        top_k: 返回条数上限，默认 20
+        time_range: 预设时间范围（1d / 7d / 1m / 3m），与 days 二选一
+        days: 自定义时间窗口（天），0 表示不限制
+        category: 信源类别过滤
+        region: 信源地区过滤
+        language: 信源语言过滤
+        min_tscore: 最低可信度（0.0-1.0）
+
+    Returns:
+        dict: SerpAPI 风格响应，含 search_information.fusion 统计
+            {
+                search_information: {
+                    fusion: { bm25_hits, vector_hits, degraded, ... }
+                },
+                organic_results: [{title, description, source_id, ...}]
+            }
+    """
+    # 校验 cvc_model_id 格式
+    if not re.match(r"^cvc_[a-z0-9]{8,32}$", cvc_model_id):
+        return {
+            "error": "Invalid cvc_model_id format",
+            "message": f"cvc_model_id must match pattern ^cvc_[a-z0-9]{{8,32}}$, got: {cvc_model_id!r}",
+        }
+
+    # 校验 mode
+    valid_modes = ("hybrid", "semantic", "keyword")
+    if mode not in valid_modes:
+        return {
+            "error": "Invalid mode",
+            "message": f"mode must be one of {valid_modes}, got: {mode!r}",
+        }
+
+    kwargs: dict = {
+        "cvc_model_id": cvc_model_id,
+        "q": q,
+        "mode": mode,
+        "top_k": top_k,
+    }
+    if time_range:
+        kwargs["time_range"] = time_range
+    if days > 0:
+        kwargs["days"] = days
+    if category:
+        kwargs["category"] = category
+    if region:
+        kwargs["region"] = region
+    if language:
+        kwargs["language"] = language
+    if min_tscore > 0:
+        kwargs["min_tscore"] = min_tscore
+
+    return _sdk_call(semantic_search, **kwargs)
+
+
+# ---- Tool 6: 带 CVC 归集的高级检索 ----
+
+
+@mcp.tool()
+def search_with_cvc(
+    q: str,
+    cvc_model_id: str = "",
+    source_ids: list[str] | None = None,
+    must_keywords: str = "",
+    should_keywords: str = "",
+    not_keywords: str = "",
+    min_tscore: float = 0.5,
+    days: int = 30,
+    start_date: str = "",
+    end_date: str = "",
+    category: str = "",
+    region: str = "",
+    language: str = "",
+    limit: int = 20,
+) -> dict:
+    """复杂逻辑情报检索（支持 CVC 归集），检索结果可归集到指定 CVC 模型库。
+
+    与 search_intelligence 功能相同，但支持 cvc_model_id 参数。
+    当传入 cvc_model_id 时，检索结果会异步归集到该模型的
+    OpenSearch/Qdrant 语义检索库，供 semantic_search 二阶段使用。
+
+    典型用法（三阶段智能检索）：
+    1. 调用 find_trusted_sources 获取可信信源 ID
+    2. 调用本工具，传入 cvc_model_id 归集检索结果
+    3. 调用 semantic_search_tool 进行语义深度检索
+
+    Args:
+        q: 查询语法字符串，如 +(Tesla|BYD) +(EV|battery) -rumor
+        cvc_model_id: CVC 模型 ID（可选），格式 ``^cvc_[a-z0-9]{8,32}$``
+            传入时检索结果将归集到语义检索库；不传则行为与 search_intelligence 一致
+        source_ids: 信源 ID 列表（来自 find_trusted_sources 的结果）
+        must_keywords: AND 关键词（逗号分隔），如 "EV,battery"
+        should_keywords: OR 关键词（逗号分隔），如 "Tesla,BYD"
+        not_keywords: NOT 排除关键词（逗号分隔），如 "rumor,speculation"
+        min_tscore: 最低情报可信度，0.0-1.0
+        days: 时间窗口（天），与 start_date/end_date 二选一
+        start_date: 精确起始日期 YYYY-MM-DD
+        end_date: 精确结束日期 YYYY-MM-DD
+        category: 信源类别过滤
+        region: 信源地区过滤
+        language: 信源语言过滤
+        limit: 返回条数上限
+
+    Returns:
+        dict: {count, items: [{title, description, source_id, tscore, published_at, ...}]}
+            若指定 cvc_model_id，响应中会包含 cvc_sync_status 字段
+    """
+    # 校验 cvc_model_id 格式
+    if cvc_model_id and not re.match(r"^cvc_[a-z0-9]{8,32}$", cvc_model_id):
+        return {
+            "error": "Invalid cvc_model_id format",
+            "message": f"cvc_model_id must match pattern ^cvc_[a-z0-9]{{8,32}}$, got: {cvc_model_id!r}",
+        }
+
+    kwargs: dict = {
+        "q": q,
+        "source_ids": source_ids,
+        "must_keywords": must_keywords.split(",") if must_keywords else None,
+        "should_keywords": should_keywords.split(",") if should_keywords else None,
+        "not_keywords": not_keywords.split(",") if not_keywords else None,
+        "min_tscore": min_tscore,
+        "days": days,
+        "start_date": start_date or None,
+        "end_date": end_date or None,
+        "category": category or None,
+        "region": region or None,
+        "language": language or None,
+        "limit": limit,
+    }
+
+    # 如果指定了 cvc_model_id，添加到请求参数
+    if cvc_model_id:
+        kwargs["cvc_model_id"] = cvc_model_id
+
+    result = _sdk_call(search_advanced, **kwargs)
+    if isinstance(result, dict) and "error" in result:
+        return result
+
+    # 添加 CVC 归集状态提示
+    if cvc_model_id:
+        result["cvc_sync_status"] = {
+            "cvc_model_id": cvc_model_id,
+            "items_found": len(result.get("items", [])),
+            "message": f"检索结果已异步归集到 CVC 模型 {cvc_model_id}，可使用 semantic_search_tool 进行语义深度检索",
+        }
+
+    return result
 
 
 def main():

@@ -165,7 +165,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-You should see all **4 tools**: `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`.
+You should see all **6 tools**: `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`.
 
 #### Step 6: Run with Docker (recommended for production)
 
@@ -174,10 +174,10 @@ You should see all **4 tools**: `find_trusted_sources`, `search_intelligence`, `
 echo "CASEE_API_KEY=casee_xxx" > .env
 
 # 2. build & start
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # 3. check status
-docker compose ps
+docker compose -f docker/docker-compose.yml ps
 ```
 
 ---
@@ -205,7 +205,7 @@ Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plu
 
 ## 🧰 MCP Tools
 
-The server exposes **4 MCP Tools** for AI Agents:
+The server exposes **6 MCP Tools** for AI Agents, supporting both traditional keyword-based and advanced semantic search:
 
 | Tool                     | Description                                                     | Key Parameters                                         |
 | ------------------------ | --------------------------------------------------------------- | ------------------------------------------------------ |
@@ -213,8 +213,10 @@ The server exposes **4 MCP Tools** for AI Agents:
 | `search_intelligence`    | Complex logic retrieval: AND/OR/NOT/phrase/synonym groups       | `q` (query syntax), `source_ids`, `min_tscore`, `days` |
 | `analyze_trend`          | Time-series trend analysis of intelligence volume               | `q`, `source_ids`, `days`                              |
 | `aggregate_by_source`    | Aggregate by source: count, avg tscore, sample titles           | `q`, `source_ids`, `days`                              |
+| `semantic_search_tool`   | Semantic search via CVC model: BM25 + Vector ANN + RRF fusion    | `cvc_model_id`, `q`, `mode`, `top_k`, `days`, `min_tscore` |
+| `search_with_cvc`        | Keyword search with optional CVC model sync for semantic index  | `q`, `cvc_model_id`, `source_ids`, `min_tscore`, `days` |
 
-### Two-Stage Trusted Retrieval Workflow
+### Two-Stage Trusted Retrieval Workflow (Keyword Search)
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -232,6 +234,48 @@ The server exposes **4 MCP Tools** for AI Agents:
 │  → Returns: verified, high-quality intelligence results         │
 └────────────────────────────────────────────────────────────────┘
 ```
+
+### Semantic Search Workflow (CVC Model)
+
+For scenarios requiring deeper semantic understanding (e.g., competitor analysis, market trend discovery, customer needs analysis), CaSee provides a **Competitive Value Chain (CVC)** based semantic search workflow:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  Step 1: Build CVC Model (one-time setup)                              │
+│  • Collect intelligence items via search_with_cvc(cvc_model_id="...")  │
+│  • System automatically indexes items into Qdrant vector database      │
+│  • CVC model becomes ready for semantic search                          │
+└──────────────────────────┬─────────────────────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  Step 2: Semantic Search                                              │
+│  semantic_search_tool(                                                │
+│      cvc_model_id="cvc_abc12345",                                     │
+│      q="竞争对手最新AI芯片技术突破",                                     │
+│      mode="hybrid",        # hybrid | semantic | keyword              │
+│      top_k=20,                                                       │
+│      days=30,                                                        │
+│      min_tscore=0.5                                                  │
+│  )                                                                    │
+│  → Returns: semantically matched results with fusion scores           │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Semantic Search Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `hybrid` (default) | Combines BM25 keyword matching + vector similarity + RRF fusion | Best general-purpose search, balances precision and recall |
+| `semantic` | Vector similarity search only | Finding conceptually related intelligence across different terminologies |
+| `keyword` | BM25 keyword matching only | Exact term matching, faster response |
+
+#### CVC Model ID Format
+
+CVC model IDs follow the pattern `cvc_[a-z0-9]{8,32}`:
+- Must start with `cvc_` prefix
+- Followed by 8-32 lowercase alphanumeric characters
+- Example: `cvc_abc12345`, `cvc_market_intel_2024`
 
 ***
 
@@ -285,7 +329,7 @@ Fully quit (Cmd+Q / Alt+F4) and relaunch Claude Desktop so it re-reads the confi
 
 #### Step 5: Verify the tools
 
-Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **4 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`).
+Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **6 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`).
 
 #### Step 6: Try it
 
@@ -358,7 +402,7 @@ Save `.workbuddy/mcp.json`, then trigger a config reload in WorkBuddy (typically
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with its **4 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`).
+Open the MCP tool panel. You should see `casee-intelligence` with its **6 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`).
 
 #### Step 5: Try it
 
@@ -419,7 +463,7 @@ Reload the MCP configuration (or restart Trae Work) so it picks up the new serve
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with **4 tools**. Enable the ones you need.
+Open the MCP tool panel. You should see `casee-intelligence` with **6 tools**. Enable the ones you need.
 
 #### Step 5: Ask for intelligence
 
@@ -565,10 +609,10 @@ cd casee-mcp-server
 echo "CASEE_API_KEY=casee_xxx" > .env
 
 # Start
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # Check health
-docker compose ps
+docker compose -f docker/docker-compose.yml ps
 curl -X POST http://localhost:8100/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
@@ -606,16 +650,19 @@ curl -X POST http://localhost:8100/mcp \
 │                    casee-mcp-server (this project)                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Tools: find_trusted_sources / search_intelligence /     │   │
-│  │         analyze_trend / aggregate_by_source              │   │
+│  │         analyze_trend / aggregate_by_source /             │   │
+│  │         semantic_search_tool / search_with_cvc            │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  casee SDK (search_sources / search_advanced / ...)       │   │
+│  │  casee SDK (search_sources / search_advanced /            │   │
+│  │              semantic_search / ...)                       │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └───────────────────────────┬─────────────────────────────────────┘
                             │  HTTP (X-API-Key)
 ┌───────────────────────────┴─────────────────────────────────────┐
 │  CaSee Intelligence Server (is_server)                            │
-│  /v1/sources/search  │  /v1/searchx  │  /v1/search  │  ...      │
+│  /v1/sources/search  │  /v1/searchx  │  /v1/search  │           │
+│  /v1/semantic-search  │  /v1/cvc/*  │  ...                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -623,7 +670,7 @@ curl -X POST http://localhost:8100/mcp \
 
 ## 🎯 Use Cases — Competitive Intelligence in Action
 
-This chapter walks through a complete, end-to-end competitive intelligence workflow, applied through `casee-mcp-server`'s 4 MCP tools. Every step is given both as a **direct API call** and as the equivalent **MCP Tool invocation** your AI agent will use.
+This chapter walks through a complete, end-to-end competitive intelligence workflow, applied through `casee-mcp-server`'s 6 MCP tools. Every step is given both as a **direct API call** and as the equivalent **MCP Tool invocation** your AI agent will use.
 
 ### Scenario — Global EV Market Intelligence
 
@@ -800,7 +847,7 @@ For all three, the agent applies the same four-step pattern: **define query → 
 | **Multi-dimensional analysis** | Trend, source-aggregate, vendor-aggregate — all native MCP tools   |
 | **Real-time freshness** | `days` parameter (1-365) lets you mix long-window trends with short-window hot signals |
 | **Lower manual effort** | Replaces "search → read → filter → copy-paste" with one agent prompt |
-| **Pluggable into any stack** | Same 4 tools work from Claude Desktop, WorkBuddy, Trae Work, LangChain, CrewAI |
+| **Pluggable into any stack** | Same 6 tools work from Claude Desktop, WorkBuddy, Trae Work, LangChain, CrewAI |
 
 ***
 
@@ -816,4 +863,111 @@ MIT © [CaSee](https://casee.me)
 - **API Documentation**: <https://casee.me/api-docs>
 - **CaSee SDK**: <https://casee.me/sdk/>
 - **MCP Protocol**: <https://modelcontextprotocol.io>
+
+***
+
+## 🔄 Language / 语言
+
+- [English](README.md)
+- [中文](README_zh.md)
+
+***
+
+## 💡 Semantic Search Examples
+
+### Example 1: Competitor Analysis with Semantic Search
+
+Analyze competitor AI chip technology breakthroughs using semantic search:
+
+```python
+# Build CVC model by collecting intelligence
+search_with_cvc(
+    q="+NVIDIA +(AI|chip|GPU) +(breakthrough|launch|announcement)",
+    cvc_model_id="cvc_nvidia_ai_chip",
+    days=90,
+    min_tscore=0.6
+)
+
+# Perform semantic search
+semantic_search_tool(
+    cvc_model_id="cvc_nvidia_ai_chip",
+    q="最新AI芯片技术突破和市场动态",
+    mode="hybrid",
+    top_k=20,
+    days=30,
+    min_tscore=0.5
+)
+```
+
+### Example 2: Market Trend Discovery
+
+Discover emerging market trends beyond keyword matches:
+
+```python
+# Step 1: Create a market intelligence CVC model
+search_with_cvc(
+    q="+market +(trend|growth|emerging) +(technology|AI|cloud)",
+    cvc_model_id="cvc_market_trends_2024",
+    days=180,
+    min_tscore=0.5
+)
+
+# Step 2: Semantic search for related concepts
+semantic_search_tool(
+    cvc_model_id="cvc_market_trends_2024",
+    q="新兴技术市场机会和增长趋势",
+    mode="semantic",  # pure semantic search for concept matching
+    top_k=30,
+    days=90,
+    min_tscore=0.4
+)
+```
+
+### Example 3: Customer Needs Analysis
+
+Analyze customer needs and pain points across different terminologies:
+
+```python
+# Build customer voice CVC model
+search_with_cvc(
+    q="+customer +(feedback|complaint|review|need) +(product|service|experience)",
+    cvc_model_id="cvc_customer_voice",
+    days=90,
+    min_tscore=0.4
+)
+
+# Semantic search for customer needs
+semantic_search_tool(
+    cvc_model_id="cvc_customer_voice",
+    q="用户痛点和产品改进建议",
+    mode="hybrid",
+    top_k=25,
+    days=30,
+    min_tscore=0.4
+)
+```
+
+### Response Format
+
+Semantic search responses include fusion statistics:
+
+```json
+{
+  "count": 15,
+  "items": [...],
+  "fusion": {
+    "mode": "hybrid",
+    "vector_hits": 15,
+    "bm25_hits": 12,
+    "degraded": []
+  },
+  "search_information": {
+    "fusion": {
+      "vector_hits": 15,
+      "bm25_hits": 12,
+      "degraded": []
+    }
+  }
+}
+```
 

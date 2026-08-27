@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  casee-mcp:
+    image: casee-mcp-server:1.0.0
+    container_name: casee-mcp-server
+    ports:
+      - "8100:8100"
+    env_file:
+      - ../.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "from casee import __version__; print('OK')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

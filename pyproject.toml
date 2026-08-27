@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "casee-mcp-server"
-version = "1.0.0"
+version = "1.1.0"
 description = "CaSee Intelligence MCP Server — enterprise competitive intelligence retrieval for AI Agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,7 +37,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "casee>=1.4.0",
+    "casee>=1.6.0",
     "mcp>=1.0.0",
 ]
 
