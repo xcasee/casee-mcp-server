@@ -118,7 +118,7 @@ Register at [https://casee.me](https://casee.me) and create a **read-only API ke
 pip install casee-mcp-server
 
 # Or from source
-git clone https://github.com/casee/casee-mcp-server.git
+git clone https://github.com/xcasee/casee-mcp-server.git
 cd casee-mcp-server && pip install -e .
 ```
 
@@ -616,7 +616,7 @@ result = crew.kickoff()
 
 ```bash
 # Clone and build
-git clone https://github.com/casee/casee-mcp-server.git
+git clone https://github.com/xcasee/casee-mcp-server.git
 cd casee-mcp-server
 
 # Set your API key
