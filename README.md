@@ -165,7 +165,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-You should see all **6 tools**: `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`.
+You should see all **14 tools**: the 6 query tools (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools and full-history purge.
 
 #### Step 6: Run with Docker (recommended for production)
 
@@ -189,7 +189,7 @@ No installation needed. The server is already deployed and running:
 ```
 MCP endpoint : https://casee.me:8100/mcp
 Transport    : Streamable-HTTP
-Server       : casee (4 MCP tools)
+Server       : casee (14 MCP tools)
 Backend      : CaSee Intelligence Server (auto-resolved)
 ```
 
@@ -205,16 +205,30 @@ Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plu
 
 ## 🧰 MCP Tools
 
-The server exposes **6 MCP Tools** for AI Agents, supporting both traditional keyword-based and advanced semantic search:
+The server exposes **14 MCP Tools** for AI Agents, supporting keyword-based and advanced semantic search plus CVC administration:
 
-| Tool                     | Description                                                     | Key Parameters                                         |
-| ------------------------ | --------------------------------------------------------------- | ------------------------------------------------------ |
-| `find_trusted_sources`   | Discover trusted sources by category, keyword, region, language | `category`, `min_tscore`, `keyword`, `limit`           |
-| `search_intelligence`    | Complex logic retrieval: AND/OR/NOT/phrase/synonym groups       | `q` (query syntax), `source_ids`, `min_tscore`, `days` |
-| `analyze_trend`          | Time-series trend analysis of intelligence volume               | `q`, `source_ids`, `days`                              |
-| `aggregate_by_source`    | Aggregate by source: count, avg tscore, sample titles           | `q`, `source_ids`, `days`                              |
-| `semantic_search_tool`   | Semantic search via CVC model: BM25 + Vector ANN + RRF fusion    | `cvc_model_id`, `q`, `mode`, `top_k`, `days`, `min_tscore` |
-| `search_with_cvc`        | Keyword search with optional CVC model sync for semantic index  | `q`, `cvc_model_id`, `source_ids`, `min_tscore`, `days` |
+| Tool                          | Description                                                           | Key Parameters                                         |
+| ----------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
+| `find_trusted_sources`        | Discover trusted sources by category, keyword, region, language       | `category`, `min_tscore`, `keyword`, `limit`           |
+| `search_intelligence`         | Complex logic retrieval: AND/OR/NOT/phrase/synonym groups             | `q` (query syntax), `source_ids`, `min_tscore`, `days` |
+| `analyze_trend`               | Time-series trend analysis of intelligence volume                     | `q`, `source_ids`, `days`                              |
+| `aggregate_by_source`         | Aggregate by source: count, avg tscore, sample titles                 | `q`, `source_ids`, `days`                              |
+| `semantic_search_tool`        | Semantic search via CVC model: BM25 + Vector ANN + RRF fusion         | `cvc_model_id`, `q`, `mode`, `top_k`, `days`, `min_tscore` |
+| `search_with_cvc`             | Keyword search with optional CVC model sync for semantic index        | `q`, `cvc_model_id`, `source_ids`, `min_tscore`, `days` |
+| `batch_search`                | Server-side batch search: many advanced queries in one round-trip     | `groups`, `dedupe`, `max_concurrency`                  |
+| `list_cvc_models_tool`        | List all CVC models with collection statistics                        | —                                                      |
+| `cvc_stats_tool`              | Collection statistics for a CVC model                                 | `cvc_model_id`                                         |
+| `cvc_cache_purge_tool`        | Reset a CVC cache (clear three-store collection data)                 | `cvc_model_id`                                         |
+| `cvc_cleanup_status_tool`     | Cleanup progress + three-store residual reconciliation                | `cvc_model_id`                                         |
+| `cvc_reindex_tool`            | Replay collection audit to rebuild a CVC store                        | `cvc_model_id`                                         |
+| `intelligence_purge_tool`     | Full-history intelligence purge by time cutoff (dry-run supported)    | `older_than_days`, `end_date`, `dry_run`, `include_mongodb` |
+| `intelligence_purge_status_tool` | Full-history purge progress + residual reconciliation              | `task_id`                                              |
+
+> **v1.2.0 (2026-09-12):** added `batch_search` plus CVC administration tools
+> (`list_cvc_models_tool` / `cvc_stats_tool` / `cvc_cache_purge_tool` /
+> `cvc_cleanup_status_tool` / `cvc_reindex_tool`), and full-history purge
+> (`intelligence_purge_tool` / `intelligence_purge_status_tool`), powered by the
+> upgraded `casee` SDK **1.9.0**.
 
 ### Two-Stage Trusted Retrieval Workflow (Keyword Search)
 
@@ -329,7 +343,7 @@ Fully quit (Cmd+Q / Alt+F4) and relaunch Claude Desktop so it re-reads the confi
 
 #### Step 5: Verify the tools
 
-Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **6 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`).
+Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **14 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
 
 #### Step 6: Try it
 
@@ -402,7 +416,7 @@ Save `.workbuddy/mcp.json`, then trigger a config reload in WorkBuddy (typically
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with its **6 tools** (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`).
+Open the MCP tool panel. You should see `casee-intelligence` with its **14 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
 
 #### Step 5: Try it
 
@@ -463,7 +477,7 @@ Reload the MCP configuration (or restart Trae Work) so it picks up the new serve
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with **6 tools**. Enable the ones you need.
+Open the MCP tool panel. You should see `casee-intelligence` with **14 tools**. Enable the ones you need.
 
 #### Step 5: Ask for intelligence
 
@@ -649,13 +663,14 @@ curl -X POST http://localhost:8100/mcp \
 ┌───────┴──────────────┴──────────────┴───────────────┴───────────┐
 │                    casee-mcp-server (this project)                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Tools: find_trusted_sources / search_intelligence /     │   │
-│  │         analyze_trend / aggregate_by_source /             │   │
-│  │         semantic_search_tool / search_with_cvc            │   │
+│  │  Tools: 6 query tools + batch_search / CVC admin         │   │
+│  │         (stats, cache purge, cleanup, reindex, list)      │   │
+│  │         + full-history purge / status                     │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  casee SDK (search_sources / search_advanced /            │   │
-│  │              semantic_search / ...)                       │   │
+│  │              semantic_search / search_batch / cvc_* /     │   │
+│  │              intelligence_purge / ...)                    │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └───────────────────────────┬─────────────────────────────────────┘
                             │  HTTP (X-API-Key)
@@ -847,7 +862,7 @@ For all three, the agent applies the same four-step pattern: **define query → 
 | **Multi-dimensional analysis** | Trend, source-aggregate, vendor-aggregate — all native MCP tools   |
 | **Real-time freshness** | `days` parameter (1-365) lets you mix long-window trends with short-window hot signals |
 | **Lower manual effort** | Replaces "search → read → filter → copy-paste" with one agent prompt |
-| **Pluggable into any stack** | Same 6 tools work from Claude Desktop, WorkBuddy, Trae Work, LangChain, CrewAI |
+| **Pluggable into any stack** | Same tools work from Claude Desktop, WorkBuddy, Trae Work, LangChain, CrewAI |
 
 ***
 

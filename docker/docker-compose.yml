@@ -8,20 +8,9 @@ services:
     container_name: casee-mcp-server
     ports:
       - "8100:8100"
-    environment:
-      # ⚠️ CASEE_API_BASE_URL MUST point to the CaSee API server (FastAPI),
-      # NOT the web portal/landing page. Pointing at the portal (e.g. https://casee.me)
-      # causes tools/call to return the portal's HTML instead of JSON intelligence data.
-      # For Docker Desktop (Mac/Windows) use http://host.docker.internal:8000
-      # For Linux, use the docker0 gateway (usually http://172.17.0.1:8000) or the host's
-      # reachable IP on the docker network.
-      - CASEE_API_KEY=${CASEE_API_KEY:-sk_xxx}
-      - CASEE_API_BASE_URL=${CASEE_API_BASE_URL:-http://host.docker.internal:8000}
-      - CASEE_TIMEOUT=${CASEE_TIMEOUT:-30}
-      - MCP_TRANSPORT=streamable-http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8100
-      - MCP_PATH=/mcp
+    # 从项目根目录 .env 注入配置（CASEE_API_KEY / CASEE_API_BASE_URL / CASEE_TIMEOUT / MCP_*）
+    env_file:
+      - ../.env
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "from casee import __version__; print('OK')"]

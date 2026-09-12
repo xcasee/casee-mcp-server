@@ -5,7 +5,10 @@ services:
     image: casee-mcp-server:1.0.0
     container_name: casee-mcp-server
     ports:
-      - "8100:8100"
+      # 仅绑定回环 8101，由 nginx stream 网关在 8100 对外提供双协议服务：
+      #   https://causalai.me:8100/mcp (TLS) / https://causalai.me:8100/mcp (明文)
+      # 配置见 deploy/nginx-stream-casee-mcp.conf
+      - "127.0.0.1:8101:8100"
     env_file:
       - ../.env
     restart: unless-stopped

@@ -3,7 +3,7 @@
 CaSee MCP Server API Key 可用性测试
 
 测试目标: 验证生产环境 MCP 服务使用指定 API Key 的可用性
-测试服务: http://121.43.113.132:8100/mcp
+测试服务: https://causalai.me:8100/mcp
 API Key: casee_uvE3pVB9_atUmUD9CLm0wSCG7h8LS55yEwIWdcYoKGPqubFVDTVeMUftV
 """
 
@@ -13,7 +13,7 @@ import time
 import sys
 
 # 配置
-SERVER_URL = "http://121.43.113.132:8100/mcp"
+SERVER_URL = "https://causalai.me:8100/mcp"
 API_KEY = "casee_uvE3pVB9_atUmUD9CLm0wSCG7h8LS55yEwIWdcYoKGPqubFVDTVeMUftV"
 CASEE_API_BASE_URL = "http://121.43.113.132:8000"
 
