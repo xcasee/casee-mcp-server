@@ -4,7 +4,13 @@ log_user 1
 
 set server "121.43.113.132"
 set user "root"
-set pass "aaa123++++"
+# Password comes from the environment; never hardcode credentials here.
+if {[info exists env(SSH_PASSWORD)]} {
+    set pass $env(SSH_PASSWORD)
+} else {
+    puts "ERROR: SSH_PASSWORD environment variable is required"
+    exit 1
+}
 set remote_dir "/opt/casee-mcp-server"
 set local_pkg "/tmp/casee-mcp-deploy.tar.gz"
 

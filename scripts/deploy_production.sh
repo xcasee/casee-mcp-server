@@ -64,8 +64,12 @@ puts "SUCCESS: Package uploaded"
 EXPECT_EOF
 )
 
-# Source the password from environment or .env
-PASSWORD="${SSH_PASSWORD:-aaa123++++}"
+# Source the password from environment (never hardcode credentials here)
+PASSWORD="${SSH_PASSWORD:-}"
+if [ -z "${PASSWORD}" ]; then
+    echo "ERROR: SSH_PASSWORD environment variable is required" >&2
+    exit 1
+fi
 
 expect -c "${EXPECT_CMD}" "${TEMP_DIR}/casee-mcp-deploy.tar.gz" "${REMOTE_USER}" "${SERVER}" "${REMOTE_DIR}" "${PASSWORD}"
 

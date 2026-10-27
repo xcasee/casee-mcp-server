@@ -29,6 +29,9 @@ Startup:
 import os
 import re
 from collections import Counter, defaultdict
+from typing import Annotated
+
+from pydantic import Field
 
 from mcp.server import MCPServer
 from casee import (
@@ -49,14 +52,27 @@ from casee.exceptions import CaseeError, AuthenticationError
 
 mcp = MCPServer(
     name="casee",
+    version="1.2.2",
     description="CaSee enterprise competitive-intelligence retrieval - trusted-source lookup, "
                 "complex retrieval, trend analysis, semantic search and CVC administration",
 )
+
+# Release version kept here (not in __init__) to avoid a circular import:
+# __init__.py re-exports this value.
+__version__ = "1.2.2"
 
 
 # ---- CVC model id validation (pattern ^cvc_[a-z0-9]{8,32}$) ----
 
 _CVC_MODEL_ID_RE = re.compile(r"^cvc_[a-z0-9]{8,32}$")
+
+# Annotated type: surfaces the pattern in the tool JSON schema so MCP
+# clients can validate cvc_model_id before ever calling the tool.
+CvcModelId = Annotated[
+    str,
+    Field(pattern=r"^cvc_[a-z0-9]{8,32}$",
+          description="CVC model id, format ^cvc_[a-z0-9]{8,32}$"),
+]
 
 
 def _safe_call(fn, *args, **kwargs):
@@ -212,7 +228,9 @@ def search_intelligence(
         limit: max number of items returned
 
     Returns:
-        dict: {count, items: [{title, description, source_id, tscore, published_at, ...}]}
+        dict: SerpAPI-style advanced search response from the CaSee API,
+            {search_metadata: {..., status}, organic_results: [{title,
+            description, source_id, tscore, published_at, ...}], ...}
     """
     return _sdk_call(
         search_advanced,
@@ -380,7 +398,7 @@ def aggregate_by_source(
 
 @mcp.tool()
 def semantic_search_tool(
-    cvc_model_id: str,
+    cvc_model_id: CvcModelId,
     q: str,
     mode: str = "hybrid",
     top_k: int = 20,
@@ -505,8 +523,8 @@ def search_with_cvc(
         limit: max number of items returned
 
     Returns:
-        dict: {count, items: [{title, description, source_id, tscore, published_at, ...}]}
-            includes a cvc_sync_status field when cvc_model_id is set
+        dict: SerpAPI-style advanced search response (as search_intelligence),
+            plus a cvc_sync_status field when cvc_model_id is set
     """
     if cvc_model_id:
         err = _validate_cvc_model_id(cvc_model_id)
@@ -539,9 +557,11 @@ def search_with_cvc(
 
     # Annotate with a CVC collection status hint
     if cvc_model_id:
+        items = (result.get("organic_results")
+                 or result.get("items") or [])
         result["cvc_sync_status"] = {
             "cvc_model_id": cvc_model_id,
-            "items_found": len(result.get("items", [])),
+            "items_found": len(items),
             "message": f"Results collected into CVC model {cvc_model_id}; "
                        f"use semantic_search_tool for deep semantic search",
         }
@@ -621,7 +641,7 @@ def list_cvc_models_tool() -> dict:
 
 
 @mcp.tool()
-def cvc_stats_tool(cvc_model_id: str) -> dict:
+def cvc_stats_tool(cvc_model_id: CvcModelId) -> dict:
     """Collection statistics for a single CVC model (docs / vectors / source & language distribution / time span).
 
     Args:
@@ -640,7 +660,7 @@ def cvc_stats_tool(cvc_model_id: str) -> dict:
 
 
 @mcp.tool()
-def cvc_cache_purge_tool(cvc_model_id: str) -> dict:
+def cvc_cache_purge_tool(cvc_model_id: CvcModelId) -> dict:
     """Reset a CVC model's cache: clear its OpenSearch / Qdrant / Redis collection data.
 
     - The CVC model itself is preserved (cvc_search_logs / tenant bindings untouched);
@@ -667,7 +687,7 @@ def cvc_cache_purge_tool(cvc_model_id: str) -> dict:
 
 
 @mcp.tool()
-def cvc_cleanup_status_tool(cvc_model_id: str) -> dict:
+def cvc_cleanup_status_tool(cvc_model_id: CvcModelId) -> dict:
     """Cleanup progress and three-store reconciliation for a CVC model.
 
     Reports the progress of the most recent cleanup task (cache/purge reset or
@@ -689,7 +709,7 @@ def cvc_cleanup_status_tool(cvc_model_id: str) -> dict:
 
 
 @mcp.tool()
-def cvc_reindex_tool(cvc_model_id: str) -> dict:
+def cvc_reindex_tool(cvc_model_id: CvcModelId) -> dict:
     """Rebuild a CVC collection store by replaying the collection audit.
 
     Reads all collection-audit records (cvc_search_logs) for the model and
@@ -787,7 +807,12 @@ def main():
     path = os.environ.get("MCP_PATH", "/mcp")
 
     if transport == "streamable-http":
-        mcp.run(transport="streamable-http", host=host, port=port, streamable_http_path=path)
+        import uvicorn
+
+        from .http_auth import build_authenticated_app
+
+        app = build_authenticated_app(mcp, path=path)
+        uvicorn.run(app, host=host, port=port, log_level="info")
     elif transport == "sse":
         mcp.run(transport="sse", host=host, port=port)
     else:

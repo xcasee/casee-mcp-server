@@ -96,7 +96,7 @@ There are **two ways** to use casee-mcp-server:
 | Option | Description | Best For |
 |--------|-------------|----------|
 | **A. Self-hosted MCP** | Build & run `casee-mcp-server` yourself (pip / source / Docker) | Full control, air-gapped networks, custom tuning, stdio mode |
-| **B. Hosted MCP (zero-setup)** | Connect directly to the deployed server at `https://casee.me:8100/mcp` | Fastest time-to-value, no local install |
+| **B. Hosted MCP (zero-setup)** | Connect directly to the deployed server at `https://causalai.me:8100/mcp` | Fastest time-to-value, no local install |
 
 ### Prerequisites
 
@@ -187,7 +187,7 @@ docker compose -f docker/docker-compose.yml ps
 No installation needed. The server is already deployed and running:
 
 ```
-MCP endpoint : https://casee.me:8100/mcp
+MCP endpoint : https://causalai.me:8100/mcp
 Transport    : Streamable-HTTP
 Server       : casee (14 MCP tools)
 Backend      : CaSee Intelligence Server (auto-resolved)
@@ -198,7 +198,7 @@ Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plu
 > **Tip**: For a quick sanity check before wiring a client, run the bundled test suite against the hosted endpoint:
 >
 > ```bash
-> python tests/test_mcp_server.py --url https://casee.me:8100/mcp
+> python tests/test_mcp_server.py --url https://causalai.me:8100/mcp
 > ```
 
 ***
@@ -298,9 +298,9 @@ CVC model IDs follow the pattern `cvc_[a-z0-9]{8,32}`:
 Below are **step-by-step walkthroughs** for wiring casee-mcp-server into each platform. Every example works with either:
 
 - **Option A** — your self-hosted server (stdio or `http://127.0.0.1:8100/mcp`)
-- **Option B** — the hosted endpoint `https://casee.me:8100/mcp`
+- **Option B** — the hosted endpoint `https://causalai.me:8100/mcp`
 
-> Replace `casee_xxx` with your real key from [https://casee.me](https://casee.me), and replace `https://casee.me:8100/mcp` with your own URL if you self-host.
+> Replace `casee_xxx` with your real key from [https://casee.me](https://casee.me), and replace `https://causalai.me:8100/mcp` with your own URL if you self-host.
 
 ---
 
@@ -359,7 +359,7 @@ Claude will call `find_trusted_sources` → `search_intelligence` and answer wit
 > {
 >   "mcpServers": {
 >     "casee-intelligence": {
->       "url": "https://casee.me:8100/mcp",
+>       "url": "https://causalai.me:8100/mcp",
 >       "headers": { "X-API-Key": "casee_xxx" }
 >     }
 >   }
@@ -391,7 +391,7 @@ Edit `.workbuddy/mcp.json` and add an entry under `mcpServers`:
   "mcpServers": {
     "casee-intelligence": {
       "transport": "streamable-http",
-      "url": "https://casee.me:8100/mcp",
+      "url": "https://causalai.me:8100/mcp",
       "headers": {
         "X-API-Key": "casee_xxx"
       }
@@ -405,7 +405,7 @@ Field reference:
 | Field | Value | Required | Description |
 |-------|-------|----------|-------------|
 | `transport` | `streamable-http` | Yes | MCP transport type |
-| `url` | `https://casee.me:8100/mcp` | Yes | MCP endpoint (replace with your self-hosted URL if needed) |
+| `url` | `https://causalai.me:8100/mcp` | Yes | MCP endpoint (replace with your self-hosted URL if needed) |
 | `headers.X-API-Key` | `casee_xxx` | Yes | Your CaSee API key from [casee.me](https://casee.me) |
 
 > **Note**: The `X-API-Key` header is what WorkBuddy will forward on every MCP request so the upstream casee-mcp-server can authenticate against the CaSee Intelligence backend. If you also need to override the backend URL, set it as an environment variable on the **server side** (e.g. in the Docker container's env), not in this client config.
@@ -463,7 +463,7 @@ If it does not exist, create it.
   "mcpServers": {
     "casee-intelligence": {
       "transport": "streamable-http",
-      "url": "https://casee.me:8100/mcp"
+      "url": "https://causalai.me:8100/mcp"
     }
   }
 }
@@ -539,7 +539,7 @@ agent.run("Find EV battery competition intelligence from trusted sources")
 
 The agent now decides when to call `casee_search` during its reasoning loop, giving your LLM real-time, trusted-source data instead of stale training knowledge.
 
-> **Connecting to the hosted endpoint** — use `StreamableHttpClient` against `https://casee.me:8100/mcp` instead of `stdio_client`:
+> **Connecting to the hosted endpoint** — use `StreamableHttpClient` against `https://causalai.me:8100/mcp` instead of `stdio_client`:
 >
 > ```python
 > from mcp.client.streamable_http import streamable_http_client
@@ -547,7 +547,7 @@ The agent now decides when to call `casee_search` during its reasoning loop, giv
 >
 > async def call_hosted(query: str) -> str:
 >     async with streamable_http_client(
->         url="https://casee.me:8100/mcp",
+>         url="https://causalai.me:8100/mcp",
 >         headers={"X-API-Key": "casee_xxx"},
 >     ) as (read, write):
 >         async with ClientSession(read, write) as session:
@@ -608,7 +608,7 @@ result = crew.kickoff()
 
 `crew.kickoff()` runs the analyst agent, which calls `search_intel` to pull real-time intelligence into its analysis.
 
-> **Connecting to the hosted endpoint** — swap `stdio_client` for `streamable_http_client(url="https://casee.me:8100/mcp", headers={"X-API-Key": "casee_xxx"})` exactly as shown in the LangChain section above.
+> **Connecting to the hosted endpoint** — swap `stdio_client` for `streamable_http_client(url="https://causalai.me:8100/mcp", headers={"X-API-Key": "casee_xxx"})` exactly as shown in the LangChain section above.
 
 ***
 

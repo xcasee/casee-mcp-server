@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """
-CaSee MCP Server API Key 可用性测试
+CaSee MCP Server API Key 可用性测试（手动诊断脚本）
 
 测试目标: 验证生产环境 MCP 服务使用指定 API Key 的可用性
-测试服务: https://causalai.me:8100/mcp
-API Key: casee_uvE3pVB9_atUmUD9CLm0wSCG7h8LS55yEwIWdcYoKGPqubFVDTVeMUftV
+测试服务: 默认 https://causalai.me:8100/mcp（可用 CASEE_MCP_URL 覆盖）
+运行方式: CASEE_MCP_TEST_KEY=<key> python tests/test_api_key.py
+（不在 pytest 中自动执行，属于手工诊断工具）
 """
 
 import requests
 import json
 import time
 import sys
+import os
 
 # 配置
-SERVER_URL = "https://causalai.me:8100/mcp"
-API_KEY = "casee_uvE3pVB9_atUmUD9CLm0wSCG7h8LS55yEwIWdcYoKGPqubFVDTVeMUftV"
-CASEE_API_BASE_URL = "http://121.43.113.132:8000"
+SERVER_URL = os.environ.get("CASEE_MCP_URL", "https://causalai.me:8100/mcp")
+API_KEY = os.environ.get("CASEE_MCP_TEST_KEY", "")
+CASEE_API_BASE_URL = os.environ.get("CASEE_API_BASE_URL", "http://121.43.113.132:8000")
 
 # 测试结果存储
 test_results = []
@@ -107,6 +109,7 @@ def mcp_list_tools():
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
+                "X-API-Key": API_KEY,
                 "Mcp-Session-Id": session_id
             },
             json={
@@ -161,6 +164,7 @@ def mcp_call_tool(tool_name, arguments, test_name):
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
+                "X-API-Key": API_KEY,
                 "Mcp-Session-Id": session_id
             },
             json={
@@ -210,7 +214,7 @@ def mcp_call_tool(tool_name, arguments, test_name):
         log_result(test_name, "FAIL", f"异常: {str(e)}", duration)
         return None
 
-def test_direct_api():
+def check_direct_api():
     """测试直接调用 CaSee API（验证 API Key）"""
     print("\n" + "="*60)
     print("测试 3: 直接调用 CaSee API 验证 API Key")
@@ -253,7 +257,7 @@ def test_direct_api():
         log_result("API Key 验证 (直接调用)", "FAIL", f"异常: {str(e)}", duration)
         return False
 
-def test_mcp_tool_find_sources():
+def check_tool_find_sources():
     """测试信源检索工具"""
     print("\n" + "="*60)
     print("测试 4: MCP 信源检索 (find_trusted_sources)")
@@ -280,7 +284,7 @@ def test_mcp_tool_find_sources():
         return True
     return False
 
-def test_mcp_tool_search_intelligence():
+def check_tool_search_intelligence():
     """测试情报检索工具"""
     print("\n" + "="*60)
     print("测试 5: MCP 情报检索 (search_intelligence)")
@@ -306,27 +310,28 @@ def test_mcp_tool_search_intelligence():
         return True
     return False
 
-def test_mcp_tool_semantic_search():
-    """测试语义检索工具"""
+def check_tool_batch_search():
+    """测试批量检索工具"""
     print("\n" + "="*60)
-    print("测试 6: MCP 语义检索 (semantic_search_tool)")
+    print("测试 6: MCP 批量检索 (batch_search)")
     print("="*60)
-    
+
     result = mcp_call_tool(
-        "semantic_search_tool",
+        "batch_search",
         {
-            "query": "人工智能芯片技术突破",
-            "limit": 5
+            "groups": [{"id": "g1", "q": "+人工智能", "days": 30, "limit": 5}],
+            "dedupe": True,
+            "max_concurrency": 2
         },
-        "semantic_search_tool 调用"
+        "batch_search 调用"
     )
     
     if result:
         if len(result) > 10:
-            log_result("语义检索结果", "PASS", 
+            log_result("批量检索结果", "PASS",
                       f"返回有效内容 ({len(result)} 字符)")
         else:
-            log_result("语义检索结果", "WARN", 
+            log_result("批量检索结果", "WARN",
                       "返回内容较短或无结果")
         return True
     return False
@@ -368,26 +373,29 @@ def main():
     print("🔍 CaSee MCP Server API Key 可用性测试")
     print("="*60)
     print(f"\n  服务地址: {SERVER_URL}")
-    print(f"  API Key:  {API_KEY[:20]}...{API_KEY[-10:]}")
     print(f"  测试时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    
+
+    if not API_KEY:
+        print("\n❌ 未设置 API Key，请通过环境变量 CASEE_MCP_TEST_KEY 提供")
+        sys.exit(2)
+
     # Step 1: 初始化 MCP 会话
     if not mcp_initialize():
         print("\n❌ MCP 会话初始化失败，终止测试")
         sys.exit(1)
-    
+
     # Step 2: 列出工具
     if not mcp_list_tools():
         print("\n❌ 工具列表获取失败，终止测试")
         sys.exit(1)
-    
+
     # Step 3: 直接测试 API Key
-    test_direct_api()
-    
+    check_direct_api()
+
     # Step 4-6: 测试 MCP 工具调用
-    test_mcp_tool_find_sources()
-    test_mcp_tool_search_intelligence()
-    test_mcp_tool_semantic_search()
+    check_tool_find_sources()
+    check_tool_search_intelligence()
+    check_tool_batch_search()
     
     # 打印总结
     success = print_summary()
