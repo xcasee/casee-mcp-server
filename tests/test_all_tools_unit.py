@@ -1,13 +1,23 @@
-"""Unit tests for all 14 MCP tools + shared helpers.
+"""Unit tests for every MCP tool + shared helpers.
 
-The casee SDK calls are patched, so no network access happens here.
-Coverage focuses on parameter shaping, validation and error conversion
-for every tool exposed by the MCP server.
+The casee SDK calls and the OpenAPI report client are patched, so no network
+access happens here. Coverage focuses on parameter shaping, validation and
+error conversion for every tool exposed by the MCP server.
 """
 import pytest
 from unittest.mock import patch
 
-from casee.exceptions import CaseeError, AuthenticationError
+from casee.exceptions import (
+    APIError,
+    AuthenticationError,
+    CaseeError,
+    NetworkError,
+    NotFoundError,
+    RateLimitError,
+    ServerError,
+    TimeoutError as CaseeTimeoutError,
+    ValidationError,
+)
 
 from casee_mcp_server.server import (
     find_trusted_sources,
@@ -73,9 +83,182 @@ class TestSafeCall:
         assert result == 3
 
 
+class TestStructuredErrorContract:
+    """Credits / permission / auth errors must be explicit and machine-readable."""
+
+    @staticmethod
+    def _call(exc):
+        def boom():
+            raise exc
+
+        return _safe_call(boom)
+
+    def test_credits_insufficient_is_explicit(self):
+        exc = APIError(
+            "Credits点数不足，需要1.0点，当前余额0.0点。",
+            status_code=402,
+            body={
+                "code": 402,
+                "message": "Credits点数不足，需要1.0点，当前余额0.0点。请联系CaSee团队追加Credits。",
+                "details": {
+                    "error": "CREDITS_INSUFFICIENT",
+                    "required_credits": 1.0,
+                    "current_credits": 0.0,
+                    "operation": "report_generate",
+                    "contact_email": "info@xcasee.com",
+                    "contact_wechat": "@casee_me",
+                    "contact_url": "/billing/service-contact",
+                },
+            },
+        )
+        result = self._call(exc)
+
+        assert result["error"] == "APIError"  # legacy field preserved
+        assert result["error_code"] == "CREDITS_INSUFFICIENT"
+        assert result["status_code"] == 402
+        assert result["details"]["required_credits"] == 1.0
+        assert result["details"]["current_credits"] == 0.0
+        assert result["details"]["operation"] == "report_generate"
+        assert result["details"]["contact_email"] == "info@xcasee.com"
+        assert result["retryable"] is False
+        assert result["action"] == "contact_support"
+        assert "Insufficient Credits" in result["hint"]
+        assert "required=1.0" in result["hint"]
+
+    def test_product_permission_denied_is_explicit(self):
+        exc = AuthenticationError(
+            "当前租户未开通「客户情报平台」，请开通该产品后重试"
+        )
+        result = self._call(exc)
+
+        assert result["error"] == "AuthenticationError"
+        assert result["error_code"] == "PRODUCT_ACCESS_DENIED"
+        assert result["status_code"] == 403
+        assert result["details"]["product"] == "客户情报平台"
+        assert result["details"]["contact_url"] == "/billing/service-contact"
+        assert result["retryable"] is False
+        assert result["action"] == "contact_admin"
+        assert "客户情报平台" in result["hint"]
+        assert "not subscribed" in result["hint"]
+
+    def test_module_access_denied_message_is_product_error(self):
+        result = self._call(
+            AuthenticationError("当前租户未授权访问该产品模块，请联系管理员开通。")
+        )
+        assert result["error_code"] == "PRODUCT_ACCESS_DENIED"
+        assert result["status_code"] == 403
+        assert result["action"] == "contact_admin"
+
+    def test_english_product_permission_message(self):
+        result = self._call(AuthenticationError(
+            "The tenant has not subscribed to the required product module."
+        ))
+        assert result["error_code"] == "PRODUCT_ACCESS_DENIED"
+        assert result["status_code"] == 403
+
+    def test_scope_denied_is_distinct_from_invalid_key(self):
+        result = self._call(AuthenticationError("API Key 缺少权限：report:generate"))
+        assert result["error_code"] == "SCOPE_DENIED"
+        assert result["status_code"] == 403
+        assert result["action"] == "reauthenticate"
+        assert "scope" in result["hint"].lower()
+
+    def test_tenant_disabled_is_explicit(self):
+        result = self._call(AuthenticationError("租户账号已被禁用，请联系管理员。"))
+        assert result["error_code"] == "TENANT_DISABLED"
+        assert result["status_code"] == 403
+        assert result["action"] == "contact_admin"
+
+    def test_invalid_api_key_stays_authentication_failed(self):
+        result = self._call(AuthenticationError("Invalid or revoked API key."))
+        assert result["error_code"] == "AUTHENTICATION_FAILED"
+        assert result["status_code"] == 401
+        assert "CASEE_API_KEY" in result["hint"]
+
+    def test_legacy_dict_repr_is_parsed(self):
+        result = self._call(AuthenticationError(
+            "{'error': 'MODULE_ACCESS_DENIED', 'message': 'blocked', "
+            "'module_id': 'customer-intel'}"
+        ))
+        assert result["error_code"] == "PRODUCT_ACCESS_DENIED"
+        assert result["details"]["module_id"] == "customer-intel"
+
+    def test_rate_limit_marks_retryable(self):
+        result = self._call(RateLimitError("Too many requests", retry_after=3))
+        assert result["error_code"] == "RATE_LIMITED"
+        assert result["status_code"] == 429
+        assert result["details"]["retry_after"] == 3
+        assert result["retryable"] is True
+        assert result["action"] == "retry_later"
+
+    def test_validation_and_not_found(self):
+        validation = self._call(ValidationError("bad", detail={"field": "q"}))
+        assert validation["error_code"] == "VALIDATION_ERROR"
+        assert validation["status_code"] == 422
+        assert validation["details"]["field"] == "q"
+
+        missing = self._call(NotFoundError("cvc not found"))
+        assert missing["error_code"] == "NOT_FOUND"
+        assert missing["status_code"] == 404
+
+    def test_server_timeout_network_are_retryable(self):
+        server = self._call(ServerError("boom", 503, {"code": 503}))
+        assert server["error_code"] == "SERVER_ERROR"
+        assert server["status_code"] == 503
+        assert server["retryable"] is True
+
+        timeout = self._call(CaseeTimeoutError("timed out"))
+        assert timeout["error_code"] == "TIMEOUT"
+        assert timeout["retryable"] is True
+
+        network = self._call(NetworkError("connection refused"))
+        assert network["error_code"] == "NETWORK_ERROR"
+        assert network["retryable"] is True
+
+    def test_unexpected_error_keeps_legacy_marker(self):
+        result = self._call(ValueError("boom"))
+        assert result["error"] == "UnexpectedError"
+        assert result["error_code"] == "UNEXPECTED_ERROR"
+        assert "ValueError" in result["message"]
+        assert result["action"] == "report_bug"
+
+    def test_sdk_402_response_chain(self):
+        """Verify the real SDK raise_for_status -> _safe_call chain for Credits."""
+        from casee.exceptions import raise_for_status
+
+        body = {
+            "code": 402,
+            "message": "Credits点数不足，需要1.0点，当前余额0.0点。",
+            "details": {
+                "error": "CREDITS_INSUFFICIENT",
+                "required_credits": 1.0,
+                "current_credits": 0.0,
+                "operation": "report_generate",
+            },
+        }
+        result = _safe_call(lambda: raise_for_status(402, body, {}))
+        assert result["error_code"] == "CREDITS_INSUFFICIENT"
+        assert result["status_code"] == 402
+        assert result["details"]["required_credits"] == 1.0
+
+    def test_sdk_403_product_response_chain(self):
+        """Verify the SDK 403 -> AuthenticationError path still yields product info."""
+        from casee.exceptions import raise_for_status
+
+        body = {
+            "code": 40303,
+            "message": "当前租户未开通「客户情报平台」，请开通该产品后重试",
+            "details": {"module_id": "customer-intel", "module_name": "客户情报平台"},
+        }
+        result = _safe_call(lambda: raise_for_status(403, body, {}))
+        assert result["error_code"] == "PRODUCT_ACCESS_DENIED"
+        assert result["status_code"] == 403
+        assert result["details"]["product"] == "客户情报平台"
+        assert result["action"] == "contact_admin"
+
+
 class TestDiagnoseSdkError:
     """Test _diagnose_sdk_error hint generation."""
-
     def test_html_landing_page_hint(self):
         exc = CaseeError(
             'Expected JSON, got HTML from CASEE_API_BASE_URL (landing page)'
@@ -162,6 +345,26 @@ class TestFindTrustedSources:
         result = find_trusted_sources()
         assert result["error"] == "CaseeError"
 
+    @patch("casee_mcp_server.server.search_sources")
+    def test_credits_error_surfaces_through_tool(self, mock_sources):
+        mock_sources.side_effect = APIError(
+            "Credits点数不足",
+            status_code=402,
+            body={
+                "code": 402,
+                "message": "Credits点数不足，需要1.0点，当前余额0.0点。",
+                "details": {
+                    "error": "CREDITS_INSUFFICIENT",
+                    "required_credits": 1.0,
+                    "current_credits": 0.0,
+                },
+            },
+        )
+        result = find_trusted_sources()
+        assert result["error_code"] == "CREDITS_INSUFFICIENT"
+        assert result["details"]["required_credits"] == 1.0
+        assert result["action"] == "contact_support"
+
 
 # --------------------------------------------------------------- tool 2
 
@@ -220,6 +423,16 @@ class TestSearchIntelligence:
         mock_search.side_effect = CaseeError("bad query")
         result = search_intelligence(q="x")
         assert result["error"] == "CaseeError"
+
+    @patch("casee_mcp_server.server.search_advanced")
+    def test_product_permission_error_surfaces_through_tool(self, mock_search):
+        mock_search.side_effect = AuthenticationError(
+            "当前租户未开通「产品竞争情报平台」，请开通该产品后重试"
+        )
+        result = search_intelligence(q="x")
+        assert result["error_code"] == "PRODUCT_ACCESS_DENIED"
+        assert result["details"]["product"] == "产品竞争情报平台"
+        assert result["action"] == "contact_admin"
 
 
 # ----------------------------------------------------------- tools 3 & 4
@@ -384,12 +597,26 @@ class TestBatchSearchBoundaries:
 class TestCvcAndPurgeToolsSmoke:
     """Cover tools 8-14 argument pass-through (error paths already covered)."""
 
-    @patch("casee_mcp_server.server.sdk_list_cvc_models")
-    def test_list_models_error_path(self, mock_list):
-        mock_list.side_effect = CaseeError("db down")
+    @patch("casee_mcp_server.server.get_report_client")
+    def test_list_models_error_path(self, mock_client):
+        client = mock_client.return_value
+        client.last_request_id = ""
+        client.request.side_effect = CaseeError("db down")
         result = list_cvc_models_tool()
+        assert result["ok"] is False
         assert result["error"] == "CaseeError"
         assert "hint" in result
+
+    @patch("casee_mcp_server.server.get_report_client")
+    def test_list_models_passes_filters(self, mock_client):
+        client = mock_client.return_value
+        client.last_request_id = "req_1"
+        client.request.return_value = {"items": [], "pagination": {"total": 0}}
+        result = list_cvc_models_tool(status="all", page=2, page_size=50)
+        assert result["ok"] is True
+        assert client.request.call_args[0][:2] == ("GET", "/cvc-models")
+        assert client.request.call_args[1]["params"]["status"] == "all"
+        assert result["meta"]["request_id"] == "req_1"
 
     @patch("casee_mcp_server.server.sdk_cvc_stats")
     def test_stats_invalid_id_short_circuits(self, mock_stats):

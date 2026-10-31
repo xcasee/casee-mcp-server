@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.0.0-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.4.0-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -165,7 +165,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-You should see all **14 tools**: the 6 query tools (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools and full-history purge.
+You should see all **23 tools**: the 6 query tools (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools, full-history purge and the v1.4 report tools (templates / plan / generate / poll / share / rebuild / health).
 
 #### Step 6: Run with Docker (recommended for production)
 
@@ -189,7 +189,7 @@ No installation needed. The server is already deployed and running:
 ```
 MCP endpoint : https://causalai.me:8100/mcp
 Transport    : Streamable-HTTP
-Server       : casee (14 MCP tools)
+Server       : casee (23 MCP tools)
 Backend      : CaSee Intelligence Server (auto-resolved)
 ```
 
@@ -205,7 +205,7 @@ Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plu
 
 ## 🧰 MCP Tools
 
-The server exposes **14 MCP Tools** for AI Agents, supporting keyword-based and advanced semantic search plus CVC administration:
+The server exposes **23 MCP Tools** for AI Agents: retrieval, CVC administration and end-to-end report generation.
 
 | Tool                          | Description                                                           | Key Parameters                                         |
 | ----------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
@@ -229,6 +229,31 @@ The server exposes **14 MCP Tools** for AI Agents, supporting keyword-based and 
 > `cvc_cleanup_status_tool` / `cvc_reindex_tool`), and full-history purge
 > (`intelligence_purge_tool` / `intelligence_purge_status_tool`), powered by the
 > upgraded `casee` SDK **1.9.0**.
+
+### Report tools (v1.4)
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `list_report_templates` | List system + tenant report templates | `scope`, `q`, `page`, `page_size` |
+| `plan_report` | Pre-flight: sections, charts, gaps, compatibility, credits | `cvc_id`, `template_id`, `time_range`, `language` |
+| `generate_report` | Create an async report job (1 Credit) | `cvc_id`, `template_id`, `output_formats`, `idempotency_key` |
+| `get_report_job` | Poll status, quality, artifacts and share link | `job_id`, `wait_ms` |
+| `list_report_jobs` | Paginated job history | `cvc_id`, `status`, `page`, `page_size` |
+| `share_report` | Create a password-free `rs-` share snapshot | `job_id`, `ttl_seconds` |
+| `backup_cvc_intelligence` | Export metadata (count / ETag) before a rebuild | `cvc_id` |
+| `rebuild_cvc_model` | Destructive rebuild; dry-run by default, `confirm=true` to execute | `cvc_id`, `confirm`, `backup`, `dry_run` |
+| `casee_health` | Gateway/backend version, API base, Credits balance | — |
+
+Successful report tools return `{ok: true, data, meta}` where `meta` carries
+`elapsed_ms`, `request_id` (when available) and `next_poll_after_ms`.
+Failures keep the structured error fields below plus `ok: false`.
+
+### MCP prompts (v1.4)
+
+`prompts/list` exposes two reusable recipes:
+
+- `report_generation` — templates → plan → generate → poll → share → quality statement
+- `retrieval_quality_guard` — degraded semantic search / zero-result disclosure rules
 
 ### Two-Stage Trusted Retrieval Workflow (Keyword Search)
 
@@ -343,7 +368,7 @@ Fully quit (Cmd+Q / Alt+F4) and relaunch Claude Desktop so it re-reads the confi
 
 #### Step 5: Verify the tools
 
-Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **14 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
+Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **23 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
 
 #### Step 6: Try it
 
@@ -416,7 +441,7 @@ Save `.workbuddy/mcp.json`, then trigger a config reload in WorkBuddy (typically
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with its **14 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
+Open the MCP tool panel. You should see `casee-intelligence` with its **23 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
 
 #### Step 5: Try it
 
@@ -477,7 +502,7 @@ Reload the MCP configuration (or restart Trae Work) so it picks up the new serve
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with **14 tools**. Enable the ones you need.
+Open the MCP tool panel. You should see `casee-intelligence` with **23 tools**. Enable the ones you need.
 
 #### Step 5: Ask for intelligence
 
@@ -612,6 +637,110 @@ result = crew.kickoff()
 
 ***
 
+## ⚠️ Error Handling
+
+Every MCP tool returns a JSON object. On failure, the payload is a structured error envelope instead of an opaque SDK exception:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `error` | string | Legacy SDK exception class (kept for backward compatibility) |
+| `error_code` | string | **Stable machine-readable code — agents should branch on this field** |
+| `message` | string | Human-readable upstream message |
+| `status_code` | int \| null | Upstream HTTP status when known |
+| `code` | int \| null | Upstream business code when available |
+| `details` | object | Structured fields (`required_credits`, `current_credits`, `product`, `module_id`, `retry_after`, contact info, …) |
+| `hint` | string | Actionable next step |
+| `retryable` | bool | Whether retrying the same call can succeed |
+| `action` | string | `contact_support` / `contact_admin` / `reauthenticate` / `retry_later` / `fix_request` / `inspect_error` / `report_bug` |
+
+### Error codes
+
+| `error_code` | HTTP | Meaning | Agent action |
+|---|---|---|---|
+| `CREDITS_INSUFFICIENT` | 402 | Tenant Credits balance is too low | Do not retry; top up or contact CaSee support |
+| `PRODUCT_ACCESS_DENIED` | 403 | API key is valid, but the tenant has not subscribed to the required product module | Do not retry; ask an administrator to enable the product |
+| `SCOPE_DENIED` | 403 | API key lacks a required scope | Create a key with the needed scope |
+| `TENANT_DISABLED` | 403 | Tenant account is disabled | Contact an administrator |
+| `AUTHENTICATION_FAILED` | 401 | API key missing/invalid/revoked | Check `CASEE_API_KEY` or create a new key |
+| `RATE_LIMITED` | 429 | Rate limit or quota exceeded | Retry after `details.retry_after` |
+| `VALIDATION_ERROR` | 422 | Request parameters invalid | Fix the request; see `details` |
+| `NOT_FOUND` | 404 | Resource not found (e.g. `cvc_model_id`) | Verify the identifier |
+| `TIMEOUT` | — | Client-side timeout | Retry later or increase `CASEE_TIMEOUT` |
+| `NETWORK_ERROR` | — | DNS/connection/TLS failure | Check `CASEE_API_BASE_URL` and connectivity |
+| `SERVER_ERROR` | 5xx | Upstream server error | Retry later; contact support if persistent |
+| `API_ERROR` | any | Other upstream API error | Inspect `message` / `details` |
+| `UNEXPECTED_ERROR` | — | Unexpected client-side error | Inspect `message`; report a bug if reproducible |
+
+### Credits insufficient (402)
+
+```json
+{
+  "error": "APIError",
+  "error_code": "CREDITS_INSUFFICIENT",
+  "message": "Credits点数不足，需要1.0点，当前余额0.0点。请联系CaSee团队追加Credits。",
+  "status_code": 402,
+  "code": 402,
+  "details": {
+    "error": "CREDITS_INSUFFICIENT",
+    "required_credits": 1.0,
+    "current_credits": 0.0,
+    "operation": "report_generate",
+    "contact_email": "info@xcasee.com",
+    "contact_wechat": "@casee_me",
+    "contact_url": "/billing/service-contact"
+  },
+  "hint": "Insufficient Credits (required=1.0, current=0.0); top up or contact CaSee support, then retry.",
+  "retryable": false,
+  "action": "contact_support"
+}
+```
+
+### Missing product permission (403)
+
+The API key is valid; only the tenant subscription is missing. Do **not** treat this as an invalid key.
+
+```json
+{
+  "error": "AuthenticationError",
+  "error_code": "PRODUCT_ACCESS_DENIED",
+  "message": "当前租户未开通「客户情报平台」，请开通该产品后重试",
+  "status_code": 403,
+  "code": null,
+  "details": {
+    "product": "客户情报平台",
+    "contact_email": "info@xcasee.com",
+    "contact_wechat": "@casee_me",
+    "contact_url": "/billing/service-contact"
+  },
+  "hint": "The API key is valid, but the tenant has not subscribed to the required product module \"客户情报平台\". Ask an administrator to enable it and retry.",
+  "retryable": false,
+  "action": "contact_admin"
+}
+```
+
+Product modules referenced by `details.product` / `details.module_id`:
+
+| module_id | Product |
+|---|---|
+| `product-competitive-intel` | 产品竞争情报平台 |
+| `market-intel` | 市场情报平台 |
+| `customer-intel` | 客户情报平台 |
+| `api-service` | API 服务集成平台 |
+| `source-collector` | 信源采集平台 |
+| `decision-simulator` | 决策仿真推理系统 |
+
+### Transport-level authentication errors
+
+When the Streamable-HTTP gateway is enabled (`MCP_REQUIRE_API_KEY=true`), protected JSON-RPC methods fail before reaching a tool:
+
+| HTTP | `error.data.error_code` | Meaning |
+|---|---|---|
+| 401 | `AUTH_MISSING_KEY` | `X-API-Key` header missing |
+| 401 | `AUTH_INVALID_KEY` | Key invalid or revoked |
+| 503 | `UPSTREAM_UNAVAILABLE` | Key-verification service unavailable; retry after `Retry-After` |
+
+***
+
 ## 🐳 Docker Deployment
 
 ```bash
@@ -645,6 +774,12 @@ curl -X POST http://localhost:8100/mcp \
 | `MCP_HOST`           | No       | `127.0.0.1`                  | Streamable-HTTP listen address            |
 | `MCP_PORT`           | No       | `8100`                       | Streamable-HTTP listen port               |
 | `MCP_PATH`           | No       | `/mcp`                       | Streamable-HTTP endpoint path             |
+| `CASEE_OPENAPI_BASE_URL` | No   | derived                      | Full OpenAPI base for report tools (defaults to `<api_base>/api/v1/openapi`) |
+| `CASEE_OPENAPI_API_KEY` | No    | `CASEE_API_KEY`              | Dedicated key for the OpenAPI report surface (portal and intelligence server may use separate key stores) |
+| `CASEE_PORTAL_BASE_URL` | No    | derived                      | Portal origin used for absolute share/report links |
+| `CASEE_REPORTS_TIMEOUT` | No    | `120`                        | Read timeout (seconds) for report/plan calls |
+| `MCP_JSON_RESPONSE`  | No       | `false`                      | `true` returns a single JSON response instead of SSE (recommended for strict clients) |
+| `MCP_REQUIRE_API_KEY` | No      | `false`                      | Enforce `X-API-Key` on the streamable-HTTP gateway |
 
 ***
 

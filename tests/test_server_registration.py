@@ -21,6 +21,16 @@ EXPECTED_TOOLS = {
     "cvc_reindex_tool",
     "intelligence_purge_tool",
     "intelligence_purge_status_tool",
+    # v1.4 report surface
+    "list_report_templates",
+    "plan_report",
+    "generate_report",
+    "get_report_job",
+    "list_report_jobs",
+    "share_report",
+    "backup_cvc_intelligence",
+    "rebuild_cvc_model",
+    "casee_health",
 }
 
 
@@ -30,7 +40,7 @@ def _schema(tool):
 
 
 class TestToolRegistration:
-    """All 14 documented tools must be registered with usable schemas."""
+    """All 23 documented tools must be registered with usable schemas."""
 
     async def test_all_tools_registered(self):
         tools = await mcp.list_tools()
@@ -39,7 +49,7 @@ class TestToolRegistration:
         extra = names - EXPECTED_TOOLS
         assert not missing, f"missing tools: {missing}"
         assert not extra, f"unexpected tools: {extra}"
-        assert len(names) == 14
+        assert len(names) == 23
 
     async def test_every_tool_has_description_and_schema(self):
         for tool in await mcp.list_tools():
@@ -64,6 +74,48 @@ class TestToolRegistration:
             prop = _schema(tools[name])["properties"]["cvc_model_id"]
             assert prop.get("pattern") == "^cvc_[a-z0-9]{8,32}$", name
 
+    async def test_report_tools_expose_required_params(self):
+        tools = {t.name: t for t in await mcp.list_tools()}
+        assert "cvc_id" in _schema(tools["plan_report"]).get("required", [])
+        assert "template_id" in _schema(tools["plan_report"]).get("required", [])
+        required = _schema(tools["generate_report"]).get("required", [])
+        assert {"cvc_id", "template_id"} <= set(required)
+        assert "job_id" in _schema(tools["get_report_job"]).get("required", [])
+        assert "job_id" in _schema(tools["share_report"]).get("required", [])
+        rebuild = _schema(tools["rebuild_cvc_model"])["properties"]
+        assert rebuild["confirm"].get("default") is False
+        assert rebuild["dry_run"].get("default") is True
+        assert rebuild["backup"].get("default") is True
+
+
+class TestPromptRegistration:
+    """v1.4 exposes the report and retrieval-quality recipes as MCP prompts."""
+
+    async def test_prompts_registered(self):
+        prompts = await mcp.list_prompts()
+        names = {p.name for p in prompts}
+        assert {"report_generation", "retrieval_quality_guard"} <= names
+
+    async def test_report_generation_prompt_has_workflow(self):
+        result = await mcp.get_prompt(
+            "report_generation",
+            {"cvc_id": "cvc_abcdefgh1234", "template_id": "report.cpm"},
+        )
+        text = result.messages[0].content.text
+        for tool_name in ("list_report_templates", "plan_report", "generate_report",
+                          "get_report_job", "share_report"):
+            assert tool_name in text
+        assert "cvc_abcdefgh1234" in text
+        assert "compatibility" in text
+        assert "data_gaps" in text
+
+    async def test_retrieval_quality_guard_prompt(self):
+        result = await mcp.get_prompt("retrieval_quality_guard", {})
+        text = result.messages[0].content.text
+        assert "vector_hits" in text
+        assert "tscore" in text
+        assert "batch_search" in text
+
 
 class TestMainTransportWiring:
     """main() selects transport per MCP_TRANSPORT and wraps HTTP with auth."""
@@ -78,7 +130,7 @@ class TestMainTransportWiring:
                    return_value=sentinel) as build, \
              patch("uvicorn.run") as uvi:
             main()
-        build.assert_called_once_with(mcp, path="/mcp")
+        build.assert_called_once_with(mcp, path="/mcp", json_response=False)
         uvi.assert_called_once()
         assert uvi.call_args[0][0] is sentinel
         assert uvi.call_args[1]["host"] == "0.0.0.0"
@@ -89,6 +141,16 @@ class TestMainTransportWiring:
         with patch.object(mcp, "run") as run:
             main()
         run.assert_called_once_with(transport="stdio")
+
+    def test_json_response_flag_forwarded(self, monkeypatch):
+        monkeypatch.setenv("MCP_TRANSPORT", "streamable-http")
+        monkeypatch.setenv("MCP_JSON_RESPONSE", "true")
+        sentinel = object()
+        with patch("casee_mcp_server.http_auth.build_authenticated_app",
+                   return_value=sentinel) as build, \
+             patch("uvicorn.run"):
+            main()
+        build.assert_called_once_with(mcp, path="/mcp", json_response=True)
 
     def test_sse_transport(self, monkeypatch):
         monkeypatch.setenv("MCP_TRANSPORT", "sse")

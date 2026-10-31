@@ -143,6 +143,9 @@ class ApiKeyAuthMiddleware:
                 401,
                 "Authentication required. Provide your CaSee API key via "
                 "the X-API-Key header.",
+                error_code="AUTH_MISSING_KEY",
+                hint="Set the X-API-Key header with a valid CaSee API key.",
+                retryable=False,
             )
         if api_key in self.static_allowlist:
             return None
@@ -154,10 +157,19 @@ class ApiKeyAuthMiddleware:
                 503,
                 "Upstream key verification unavailable; retry shortly.",
                 retry_after=10,
+                error_code="UPSTREAM_UNAVAILABLE",
+                hint="The API key verification service is unavailable; retry later.",
+                retryable=True,
             )
         logger.info("reject: invalid api key ip=%s",
                     scope.get("client", ("",))[0])
-        return self._deny(401, "Invalid or revoked API key.")
+        return self._deny(
+            401,
+            "Invalid or revoked API key.",
+            error_code="AUTH_INVALID_KEY",
+            hint="Check CASEE_API_KEY or create a new API key.",
+            retryable=False,
+        )
 
     async def _verify_cached(self, key: str) -> bool | None:
         now = time.monotonic()
@@ -218,18 +230,29 @@ class ApiKeyAuthMiddleware:
         return receive
 
     @staticmethod
-    def _deny(status: int, detail: str, *, retry_after: int | None = None):
+    def _deny(
+        status: int,
+        detail: str,
+        *,
+        retry_after: int | None = None,
+        error_code: str = "",
+        hint: str = "",
+        retryable: bool = False,
+    ):
         headers = {"WWW-Authenticate": 'ApiKey realm="casee-mcp"'}
         if retry_after:
             headers["Retry-After"] = str(retry_after)
 
         async def respond(scope, receive, send) -> None:
+            error: dict = {"code": -32001, "message": detail}
+            if error_code:
+                error["data"] = {
+                    "error_code": error_code,
+                    "hint": hint,
+                    "retryable": retryable,
+                }
             resp = JSONResponse(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {"code": -32001, "message": detail},
-                    "id": None,
-                },
+                {"jsonrpc": "2.0", "error": error, "id": None},
                 status_code=status,
                 headers=headers,
             )
@@ -238,10 +261,15 @@ class ApiKeyAuthMiddleware:
         return respond
 
 
-def build_authenticated_app(mcp_server, *, path: str):
-    """Wrap the MCP streamable-HTTP ASGI app with API-key auth when enabled."""
+def build_authenticated_app(mcp_server, *, path: str, json_response: bool = False):
+    """Wrap the MCP streamable-HTTP ASGI app with API-key auth when enabled.
+
+    ``json_response=True`` (env ``MCP_JSON_RESPONSE``) makes POST responses a
+    single JSON document instead of an SSE stream, which avoids client-side
+    SSE parsing failures on long tool results.
+    """
     app = mcp_server.streamable_http_app(
-        streamable_http_path=path, host="0.0.0.0"
+        streamable_http_path=path, host="0.0.0.0", json_response=json_response,
     )
     if not _env_bool("MCP_REQUIRE_API_KEY", False):
         logger.warning(

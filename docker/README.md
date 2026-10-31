@@ -42,7 +42,7 @@ echo "CASEE_API_KEY=casee_xxx" > .env
 
 # 2. 拉取或加载镜像
 # 方式 A：从仓库拉取
-docker pull casee-mcp-server:1.0.0
+docker pull casee-mcp-server:1.4.0
 
 # 方式 B：从本地 tar 加载
 docker load -i casee-mcp-server-1.0.0.tar
@@ -61,7 +61,7 @@ docker compose -f docker/docker-compose.server.yml ps
 docker compose -f docker/docker-compose.yml build
 
 # 导出镜像为 tar 文件
-docker save casee-mcp-server:1.0.0 -o casee-mcp-server-1.0.0.tar
+docker save casee-mcp-server:1.4.0 -o casee-mcp-server-1.0.0.tar
 
 # 在目标服务器导入镜像
 docker load -i casee-mcp-server-1.0.0.tar

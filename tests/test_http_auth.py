@@ -175,6 +175,8 @@ class TestProtectedMethods:
         assert rec.status == 401
         payload = json.loads(rec.body)
         assert payload["error"]["code"] == -32001
+        assert payload["error"]["data"]["error_code"] == "AUTH_MISSING_KEY"
+        assert payload["error"]["data"]["retryable"] is False
         assert down.scopes == []  # never reached downstream
 
     async def test_invalid_key_rejected_401(self):
@@ -183,6 +185,8 @@ class TestProtectedMethods:
         rec = SendRecorder()
         await mw(make_scope(headers={"X-API-Key": "bad"}), await fake_receive(), rec)
         assert rec.status == 401
+        payload = json.loads(rec.body)
+        assert payload["error"]["data"]["error_code"] == "AUTH_INVALID_KEY"
         assert down.scopes == []
 
     async def test_allowlisted_key_passes_without_upstream(self):
@@ -210,6 +214,9 @@ class TestProtectedMethods:
         rec = SendRecorder()
         await mw(make_scope(headers={"X-API-Key": "k"}), await fake_receive(), rec)
         assert rec.status == 503
+        payload = json.loads(rec.body)
+        assert payload["error"]["data"]["error_code"] == "UPSTREAM_UNAVAILABLE"
+        assert payload["error"]["data"]["retryable"] is True
         # Retry-After header present (header names are lowercased by Starlette)
         start = next(m for m in rec.messages if m["type"] == "http.response.start")
         header_pairs = [(k.decode().lower(), v.decode())
