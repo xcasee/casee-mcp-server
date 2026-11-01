@@ -31,6 +31,10 @@ EXPECTED_TOOLS = {
     "backup_cvc_intelligence",
     "rebuild_cvc_model",
     "casee_health",
+    # v1.5 CVC lifecycle
+    "search_cvc_companies",
+    "create_cvc_model",
+    "get_cvc_build_status",
 }
 
 
@@ -40,7 +44,7 @@ def _schema(tool):
 
 
 class TestToolRegistration:
-    """All 23 documented tools must be registered with usable schemas."""
+    """All 26 documented tools must be registered with usable schemas."""
 
     async def test_all_tools_registered(self):
         tools = await mcp.list_tools()
@@ -49,7 +53,7 @@ class TestToolRegistration:
         extra = names - EXPECTED_TOOLS
         assert not missing, f"missing tools: {missing}"
         assert not extra, f"unexpected tools: {extra}"
-        assert len(names) == 23
+        assert len(names) == 26
 
     async def test_every_tool_has_description_and_schema(self):
         for tool in await mcp.list_tools():
@@ -89,12 +93,23 @@ class TestToolRegistration:
 
 
 class TestPromptRegistration:
-    """v1.4 exposes the report and retrieval-quality recipes as MCP prompts."""
+    """v1.5 exposes the CVC-creation recipe alongside v1.4 report recipes."""
 
     async def test_prompts_registered(self):
         prompts = await mcp.list_prompts()
         names = {p.name for p in prompts}
-        assert {"report_generation", "retrieval_quality_guard"} <= names
+        assert {"cvc_creation", "report_generation", "retrieval_quality_guard"} <= names
+
+    async def test_cvc_creation_prompt_has_workflow(self):
+        result = await mcp.get_prompt("cvc_creation", {"query": "长时储能"})
+        text = result.messages[0].content.text
+        for tool_name in ("search_cvc_companies", "create_cvc_model",
+                          "rebuild_cvc_model", "get_cvc_build_status"):
+            assert tool_name in text
+        assert "默认全选" in text
+        assert "10 分钟" in text
+        assert "邮件" in text
+        assert "长时储能" in text
 
     async def test_report_generation_prompt_has_workflow(self):
         result = await mcp.get_prompt(

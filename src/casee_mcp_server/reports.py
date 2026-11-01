@@ -183,10 +183,11 @@ class ReportClient:
         params: Optional[Dict[str, Any]] = None,
         json_body: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
+        timeout: Optional[float] = None,
     ) -> Any:
         data, _meta = self.request_with_meta(
             method, path, params=params, json_body=json_body,
-            extra_headers=extra_headers,
+            extra_headers=extra_headers, timeout=timeout,
         )
         return data
 
@@ -198,6 +199,7 @@ class ReportClient:
         params: Optional[Dict[str, Any]] = None,
         json_body: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
+        timeout: Optional[float] = None,
     ) -> Tuple[Any, Dict[str, Any]]:
         url = f"{self.base_url}/{path.lstrip('/')}"
         clean_params = {k: v for k, v in (params or {}).items() if v not in (None, "")}
@@ -211,7 +213,7 @@ class ReportClient:
             (extra_headers or {}).get("Idempotency-Key")
         )
 
-        with httpx.Client(timeout=self.timeout, transport=self._transport) as client:
+        with httpx.Client(timeout=timeout or self.timeout, transport=self._transport) as client:
             for attempt in range(self.max_retries + 1):
                 try:
                     resp = client.request(

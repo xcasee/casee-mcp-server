@@ -29,7 +29,14 @@ Report tools (v1.4, OpenAPI /api/v1/openapi):
 - rebuild_cvc_model         Dry-run or destructive rebuild (confirm required)
 - casee_health              Gateway / backend version and API base
 
-MCP prompts (v1.4):
+CVC lifecycle tools (v1.5, OpenAPI /api/v1/openapi):
+- search_cvc_companies      Search candidate companies before creating a CVC
+- create_cvc_model          Create a CVC draft (companies selected by the user)
+- get_cvc_build_status      Poll build phases / current step / failure hints
+
+MCP prompts (v1.5):
+- cvc_creation              search → user confirms (all by default) → create →
+                            rebuild → tell user ~10 min + completion email
 - report_generation         list → plan → generate → poll → share → declare quality
 - retrieval_quality_guard   Degraded-semantic / zero-result disclosure protocol
 
@@ -83,15 +90,15 @@ from .reports import get_report_client
 
 mcp = MCPServer(
     name="casee",
-    version="1.4.0",
+    version="1.5.0",
     description="CaSee enterprise competitive-intelligence retrieval and report generation - "
                 "trusted-source lookup, complex retrieval, trend analysis, semantic search, "
-                "CVC administration, report templates / pre-flight / generation / sharing",
+                "CVC creation / build tracking, report templates / pre-flight / generation / sharing",
 )
 
 # Release version kept here (not in __init__) to avoid a circular import:
 # __init__.py re-exports this value.
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 
 # ---- CVC model id validation (pattern ^cvc_[a-z0-9]{8,32}$) ----
@@ -987,6 +994,202 @@ def list_cvc_models_tool(
     )
 
 
+# ---- CVC lifecycle tools (v1.5) ----
+
+
+@mcp.tool()
+def search_cvc_companies(query: str, language: str = "zh", limit: int = 8) -> dict:
+    """Search candidate companies before creating a CVC model.
+
+    Use this when the user gives an analysis goal but no ``cvc_id``, and no
+    existing CVC matches the goal. Show the returned companies to the user;
+    they are **selected by default** (``default_selection="all"``), so the
+    user only needs to exclude indices.
+
+    Args:
+        query: analysis goal / company name / industry / product category
+        language: zh | en
+        limit: max number of companies, 1-20 (default 8; 3-8 works best)
+
+    Returns:
+        dict: {ok, data: {query, query_type, query_topic, suggested_cvc_name,
+              items: [{name, name_en, website, description, main_business,
+              products[], markets[], competitors[], customers[], selected}],
+              total, default_selection, selection_hint, not_found,
+              next_actions}, meta}
+    """
+    q = (query or "").strip()
+    if len(q) < 2:
+        return _report_invalid("query must contain at least 2 characters", {"query": query})
+    if language not in ("zh", "en"):
+        return _report_invalid("language must be zh or en", {"language": language})
+    if not 1 <= limit <= 20:
+        return _report_invalid("limit must be between 1 and 20", {"limit": limit})
+    client = get_report_client()
+    return _report_call(
+        lambda: client.request(
+            "POST", "/companies/search",
+            json_body={"query": q, "language": language, "limit": int(limit)},
+            # 首次检索走 LLM 画像，实测可达 2~3 分钟；默认 120s 会误判超时
+            timeout=240.0,
+        ),
+        client,
+    )
+
+
+@mcp.tool()
+def create_cvc_model(
+    name: str,
+    companies: list,
+    description: str = "",
+    query_type: str = "industry",
+    query_topic: str = "",
+    search_input: str = "",
+    language: str = "zh",
+    overwrite: bool = False,
+    idempotency_key: str = "",
+) -> dict:
+    """Create a CVC model draft (then call rebuild_cvc_model to start building).
+
+    ⚠️ Building takes about **10 minutes**; the platform emails the tenant's
+    registered address when it finishes. Tell the user this and do not block
+    the conversation waiting for completion.
+
+    Args:
+        name: CVC name (unique per tenant)
+        companies: list of company names, or objects
+            {name, name_en, website, products[], markets[], competitors[],
+            customers[], partners[]} — pass the companies the user confirmed
+            (all by default) from ``search_cvc_companies``
+        description: research goal / description
+        query_type: industry | company | product (metadata only)
+        query_topic: industry/theme keywords (recommended; required when only
+            company names are supplied, otherwise phase-1 relevance filtering
+            may drop every intelligence item)
+        search_input: retrieval keywords (defaults to name)
+        language: zh | en
+        overwrite: replace an existing CVC with the same name (dangerous)
+        idempotency_key: optional client-generated key (8-128 chars)
+
+    Returns:
+        dict: {ok, data: {cvc_id, status, build_readiness, warnings,
+              build_status_url, phase_plan, poll, next_actions, user_message,
+              next_step}, meta}
+    """
+    title = (name or "").strip()
+    if not title:
+        return _report_invalid("name is required", {"name": name})
+    normalized: list = []
+    for idx, item in enumerate(companies or []):
+        if isinstance(item, str) and item.strip():
+            normalized.append(item.strip())
+        elif isinstance(item, dict) and str(item.get("name") or "").strip():
+            normalized.append(item)
+        else:
+            return _report_invalid(
+                f"companies[{idx}] must be a non-empty name or an object with name",
+                {"index": idx},
+            )
+    if not normalized:
+        return _report_invalid(
+            "companies must contain at least 1 company; call search_cvc_companies first",
+            {"companies": companies},
+        )
+    if len(normalized) > 20:
+        return _report_invalid("companies supports at most 20 entries", {"count": len(normalized)})
+    if language not in ("zh", "en"):
+        return _report_invalid("language must be zh or en", {"language": language})
+    if idempotency_key and not 8 <= len(idempotency_key) <= 128:
+        return _report_invalid(
+            "idempotency_key must be 8-128 characters", {"length": len(idempotency_key)},
+        )
+    client = get_report_client()
+
+    def call():
+        data = client.request(
+            "POST", "/cvc-models",
+            json_body={
+                "name": title,
+                "description": description or "",
+                "search_input": search_input or title,
+                "query_type": query_type or "industry",
+                "query_topic": query_topic or "",
+                "language": language,
+                "overwrite": bool(overwrite),
+                "companies": normalized,
+            },
+            extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
+        )
+        if isinstance(data, dict):
+            data["user_message"] = (
+                "价值链已创建并等待构建：约 10 分钟；完成后系统会向注册邮箱发送邮件通知。"
+            )
+            data["next_step"] = {
+                "tool": "rebuild_cvc_model",
+                "args": {
+                    "cvc_id": data.get("cvc_id"),
+                    "confirm": True,
+                    "dry_run": False,
+                    "backup": True,
+                },
+                "hint": "启动构建后立即告知用户约 10 分钟 + 邮件通知，不要阻塞等待",
+            }
+        return data
+
+    return _report_call(call, client)
+
+
+@mcp.tool()
+def get_cvc_build_status(
+    cvc_id: str,
+    wait_seconds: int = 0,
+    include_logs: bool = True,
+    log_since: int = 0,
+) -> dict:
+    """Poll a CVC build: phase progress, current step, failure hints and next actions.
+
+    Use ``wait_seconds`` (0-25) for long-polling. Report progress to the user
+    with ``status_label`` + ``phases[]`` + ``phase_detail``; on failure read
+    ``failure.hint`` / ``next_actions`` and do not rebuild without consent.
+
+    Args:
+        cvc_id: CVC model id (cvc_xxx)
+        wait_seconds: long-poll wait, 0-25 seconds (state change returns early)
+        include_logs: include build logs (last 20 entries are returned)
+        log_since: incremental log cursor; use ``log_next_since`` from the last call
+
+    Returns:
+        dict: {ok, data: {status, status_label, build_progress, current_phase,
+              phase_name, phase_progress, phase_detail, phases[], failure,
+              build_readiness, poll, next_actions, build_logs, log_total,
+              log_next_since, intelligence_count, fuseki_triples}, meta}
+    """
+    if not cvc_id:
+        return _report_invalid("cvc_id is required", {"cvc_id": cvc_id})
+    if not 0 <= wait_seconds <= 25:
+        return _report_invalid("wait_seconds must be between 0 and 25", {"wait_seconds": wait_seconds})
+    if log_since < 0:
+        return _report_invalid("log_since must be >= 0", {"log_since": log_since})
+    client = get_report_client()
+
+    def call():
+        data = client.request(
+            "GET", f"/cvc-models/{cvc_id}/build-status",
+            params={
+                "wait_seconds": int(wait_seconds),
+                "include_logs": bool(include_logs),
+                "log_since": int(log_since),
+            },
+        )
+        if isinstance(data, dict) and include_logs:
+            logs = data.get("build_logs") or []
+            # 控制上下文体积：只回传最近 20 条，游标供下次增量拉取
+            data["build_logs"] = logs[-20:]
+        return data
+
+    return _report_call(call, client)
+
+
 # ---- Tool 9: CVC collection statistics ----
 
 
@@ -1673,6 +1876,49 @@ def casee_health() -> dict:
 
 
 # ---- MCP prompts / Skill recipes (v1.4) ----
+
+
+@mcp.prompt(
+    name="cvc_creation",
+    description="Create a CVC from a bare analysis goal: search companies → user confirms (all by default) → create → rebuild → ~10 min + completion email.",
+)
+def cvc_creation_prompt(query: str = "", cvc_name: str = "") -> str:
+    """Reusable CVC-creation recipe exposed via prompts/list (v1.5)."""
+    goal = query or "<analysis goal>"
+    name = cvc_name or "<suggested_cvc_name>"
+    return f"""Use the CaSee MCP tools to turn an analysis goal into a buildable CVC.
+Goal: `{goal}`
+
+Follow this order; never invent companies:
+
+1. search_cvc_companies(query="{goal}", limit=8)
+   - If items is empty: ask the user for a more specific industry/company name,
+     or for 3-8 company names. Do not fabricate.
+   - Show the list as: index. name | main_business | website
+   - Say explicitly: "已默认全选；回复要去掉的序号即可，回复“全部保留/继续”也可以"
+2. Wait for the user to confirm. "全部/都行/继续" means keep all; otherwise
+   drop the indices the user excluded.
+3. create_cvc_model(
+     name="{name}",
+     companies=<selected items, keep products/markets/competitors>,
+     query_topic="{goal}",
+     query_type="industry",
+   )
+   - If data.build_readiness.ready is false or data.warnings is non-empty:
+     tell the user what is missing before building (it may fail in phase 1).
+4. rebuild_cvc_model(cvc_id=<cvc_id>, confirm=true, dry_run=false, backup=true)
+5. Immediately tell the user:
+   "价值链已开始构建，约 10 分钟；完成后系统会向你的注册邮箱发送邮件通知
+    （若长时间未收到，可直接回来让我查进度）。期间你可以继续问其他问题。"
+   Do NOT block the conversation and do NOT poll every few seconds.
+6. When the user asks for progress later: get_cvc_build_status(cvc_id, wait_seconds=15)
+   - Report status_label + phases[] + phase_detail
+     (e.g. "阶段1 竞争情报采集 80%：全文抓取中").
+   - status=failed → read failure.hint / next_actions; explain it and ask before
+     any destructive rebuild.
+
+Building is asynchronous and consumes Credits; a failed build is refunded.
+"""
 
 
 @mcp.prompt(

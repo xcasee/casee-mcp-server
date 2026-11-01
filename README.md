@@ -165,7 +165,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-You should see all **23 tools**: the 6 query tools (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools, full-history purge and the v1.4 report tools (templates / plan / generate / poll / share / rebuild / health).
+You should see all **26 tools**: the 6 query tools (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools, full-history purge, the v1.4 report tools (templates / plan / generate / poll / share / rebuild / health) and the v1.5 CVC creation tools (company search / create / build status).
 
 #### Step 6: Run with Docker (recommended for production)
 
@@ -189,7 +189,7 @@ No installation needed. The server is already deployed and running:
 ```
 MCP endpoint : https://causalai.me:8100/mcp
 Transport    : Streamable-HTTP
-Server       : casee (23 MCP tools)
+Server       : casee (26 MCP tools)
 Backend      : CaSee Intelligence Server (auto-resolved)
 ```
 
@@ -205,7 +205,7 @@ Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plu
 
 ## 🧰 MCP Tools
 
-The server exposes **23 MCP Tools** for AI Agents: retrieval, CVC administration and end-to-end report generation.
+The server exposes **26 MCP Tools** for AI Agents: retrieval, CVC administration, CVC creation and end-to-end report generation.
 
 | Tool                          | Description                                                           | Key Parameters                                         |
 | ----------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
@@ -248,10 +248,26 @@ Successful report tools return `{ok: true, data, meta}` where `meta` carries
 `elapsed_ms`, `request_id` (when available) and `next_poll_after_ms`.
 Failures keep the structured error fields below plus `ok: false`.
 
-### MCP prompts (v1.4)
+### CVC creation tools (v1.5)
 
-`prompts/list` exposes two reusable recipes:
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `search_cvc_companies` | Search candidate companies for an analysis goal; returns proposed products/markets/competitors and `selected=true` (all by default) | `query`, `language`, `limit` |
+| `create_cvc_model` | Create a CVC draft (company names or objects); returns `build_readiness`, `warnings` and `next_step` | `name`, `companies`, `query_topic`, `query_type`, `overwrite`, `idempotency_key` |
+| `get_cvc_build_status` | Phase progress, current step, failure attribution and polling hints; supports long-poll and incremental logs | `cvc_id`, `wait_seconds`, `include_logs`, `log_since` |
 
+> Flow: `search_cvc_companies` (show the list, all selected by default) →
+> `create_cvc_model` → `rebuild_cvc_model(confirm=true, dry_run=false)` → tell the
+> user "about 10 minutes; a completion email will be sent" and do **not** block.
+> When the user asks later, call `get_cvc_build_status` and report `phases[]` /
+> `failure.hint`. The first company search runs an LLM profile and may take 1-3
+> minutes (the tool uses a 240s timeout).
+
+### MCP prompts (v1.5)
+
+`prompts/list` exposes three reusable recipes:
+
+- `cvc_creation` — company search → user confirms (all by default) → create → build → 10 min/email
 - `report_generation` — templates → plan → generate → poll → share → quality statement
 - `retrieval_quality_guard` — degraded semantic search / zero-result disclosure rules
 
@@ -368,7 +384,7 @@ Fully quit (Cmd+Q / Alt+F4) and relaunch Claude Desktop so it re-reads the confi
 
 #### Step 5: Verify the tools
 
-Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **23 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
+Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **26 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
 
 #### Step 6: Try it
 
@@ -441,7 +457,7 @@ Save `.workbuddy/mcp.json`, then trigger a config reload in WorkBuddy (typically
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with its **23 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
+Open the MCP tool panel. You should see `casee-intelligence` with its **26 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
 
 #### Step 5: Try it
 
@@ -502,7 +518,7 @@ Reload the MCP configuration (or restart Trae Work) so it picks up the new serve
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with **23 tools**. Enable the ones you need.
+Open the MCP tool panel. You should see `casee-intelligence` with **26 tools**. Enable the ones you need.
 
 #### Step 5: Ask for intelligence
 
@@ -775,7 +791,6 @@ curl -X POST http://localhost:8100/mcp \
 | `MCP_PORT`           | No       | `8100`                       | Streamable-HTTP listen port               |
 | `MCP_PATH`           | No       | `/mcp`                       | Streamable-HTTP endpoint path             |
 | `CASEE_OPENAPI_BASE_URL` | No   | derived                      | Full OpenAPI base for report tools (defaults to `<api_base>/api/v1/openapi`) |
-| `CASEE_OPENAPI_API_KEY` | No    | `CASEE_API_KEY`              | Dedicated key for the OpenAPI report surface (portal and intelligence server may use separate key stores) |
 | `CASEE_PORTAL_BASE_URL` | No    | derived                      | Portal origin used for absolute share/report links |
 | `CASEE_REPORTS_TIMEOUT` | No    | `120`                        | Read timeout (seconds) for report/plan calls |
 | `MCP_JSON_RESPONSE`  | No       | `false`                      | `true` returns a single JSON response instead of SSE (recommended for strict clients) |

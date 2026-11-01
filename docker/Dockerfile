@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="casee-mcp-server"
 LABEL org.opencontainers.image.description="CaSee Intelligence MCP Server for AI Agents"
-LABEL org.opencontainers.image.version="1.4.0"
+LABEL org.opencontainers.image.version="1.5.0"
 LABEL org.opencontainers.image.url="https://casee.me"
 
 WORKDIR /app
