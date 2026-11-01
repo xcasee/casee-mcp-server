@@ -124,15 +124,24 @@ class TestProductionLive:
         assert resp.status_code == 200
         data = parse_jsonrpc(resp)
         tools = {t["name"] for t in data["result"]["tools"]}
-        assert len(tools) == 14
+        assert len(tools) == 26
         for expected in ("find_trusted_sources", "search_intelligence",
                          "analyze_trend", "aggregate_by_source",
                          "semantic_search_tool", "search_with_cvc",
                          "batch_search", "list_cvc_models_tool",
                          "cvc_stats_tool", "cvc_cache_purge_tool",
                          "cvc_cleanup_status_tool", "cvc_reindex_tool",
+                         "rebuild_cvc_model", "backup_cvc_intelligence",
                          "intelligence_purge_tool",
-                         "intelligence_purge_status_tool"):
+                         "intelligence_purge_status_tool",
+                         # v1.4.0 report tools
+                         "list_report_templates", "plan_report",
+                         "generate_report", "get_report_job",
+                         "list_report_jobs", "share_report",
+                         "casee_health",
+                         # v1.5.0 CVC creation tools
+                         "search_cvc_companies", "create_cvc_model",
+                         "get_cvc_build_status"):
             assert expected in tools
 
     def _call_raw(self, sid, name, arguments, call_id):
@@ -226,8 +235,10 @@ class TestProductionLive:
     def test_call_list_cvc_models(self, session):
         sid, _ = session
         payload = self._call(sid, "list_cvc_models_tool", {}, 15)
-        assert "count" in payload or "error" in payload
-        assert "models" in payload or "error" in payload
+        # v1.4+ envelope: {ok, data: {items, pagination}, meta}; errors keep "error"
+        assert "error" in payload or (
+            payload.get("ok") and isinstance(payload.get("data", {}).get("items"), list)
+        ), payload
 
     def test_call_cvc_tools_invalid_id_short_circuit(self, session):
         """Invalid ids are rejected: either by MCP schema validation
@@ -255,3 +266,34 @@ class TestProductionLive:
         sid, _ = session
         payload = self._call(sid, "intelligence_purge_status_tool", {}, 18)
         assert isinstance(payload, dict)
+
+    # ---- v1.4.0 report tools (live) ----
+
+    def test_call_casee_health(self, session):
+        sid, _ = session
+        payload = self._call(sid, "casee_health", {}, 40)
+        assert "error" not in payload, payload
+
+    def test_call_list_report_templates(self, session):
+        sid, _ = session
+        payload = self._call(sid, "list_report_templates", {}, 41)
+        assert "error" not in payload, payload
+
+    def test_call_list_report_jobs(self, session):
+        sid, _ = session
+        payload = self._call(sid, "list_report_jobs", {"limit": 5}, 42)
+        assert isinstance(payload, dict)
+
+    # ---- v1.5.0 CVC creation tools (live) ----
+
+    def test_call_get_cvc_build_status_known_model(self, session):
+        sid, _ = session
+        listing = self._call(sid, "list_cvc_models_tool", {"page_size": 1}, 50)
+        if "error" in listing:
+            return
+        items = listing.get("data", {}).get("items") or []
+        if not items:
+            return
+        payload = self._call(sid, "get_cvc_build_status",
+                             {"cvc_id": items[0]["cvc_id"]}, 51)
+        assert "error" not in payload, payload
