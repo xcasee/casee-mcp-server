@@ -13,7 +13,7 @@ Environment:
                               overrides ``CASEE_API_KEY`` when set (the portal
                               OpenAPI platform and the intelligence server may
                               use separate key stores).
-    CASEE_API_BASE_URL        Backend root, e.g. ``https://www.casee.me``.
+    CASEE_API_BASE_URL        Backend root, e.g. ``https://origin.casee.me``.
     CASEE_OPENAPI_BASE_URL    Full OpenAPI base; overrides the derived value.
     CASEE_PORTAL_BASE_URL     Portal origin for share/download links.
     CASEE_REPORTS_TIMEOUT     Read timeout seconds (default 120).

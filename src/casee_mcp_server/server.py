@@ -29,12 +29,14 @@ Report tools (v1.4, OpenAPI /api/v1/openapi):
 - rebuild_cvc_model         Dry-run or destructive rebuild (confirm required)
 - casee_health              Gateway / backend version and API base
 
-CVC lifecycle tools (v1.5, OpenAPI /api/v1/openapi):
-- search_cvc_companies      Search candidate companies before creating a CVC
-- create_cvc_model          Create a CVC draft (companies selected by the user)
+CVC lifecycle tools (v1.6, OpenAPI /api/v1/openapi):
+- search_cvc_companies      Search candidate companies (async job + bounded poll)
+- create_cvc_model          Create a CVC draft (async job + bounded poll)
+- get_company_search_job    Poll a company-search job by job_id
+- get_cvc_creation_job      Poll a CVC-creation job by job_id
 - get_cvc_build_status      Poll build phases / current step / failure hints
 
-MCP prompts (v1.5):
+MCP prompts (v1.6):
 - cvc_creation              search → user confirms (all by default) → create →
                             rebuild → tell user ~10 min + completion email
 - report_generation         list → plan → generate → poll → share → declare quality
@@ -90,7 +92,7 @@ from .reports import get_report_client
 
 mcp = MCPServer(
     name="casee",
-    version="1.5.0",
+    version="1.6.0",
     description="CaSee enterprise competitive-intelligence retrieval and report generation - "
                 "trusted-source lookup, complex retrieval, trend analysis, semantic search, "
                 "CVC creation / build tracking, report templates / pre-flight / generation / sharing",
@@ -98,7 +100,7 @@ mcp = MCPServer(
 
 # Release version kept here (not in __init__) to avoid a circular import:
 # __init__.py re-exports this value.
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 
 # ---- CVC model id validation (pattern ^cvc_[a-z0-9]{8,32}$) ----
@@ -994,12 +996,69 @@ def list_cvc_models_tool(
     )
 
 
-# ---- CVC lifecycle tools (v1.5) ----
+# ---- CVC lifecycle tools (v1.6) ----
+
+_CVC_JOB_STATUS_PATHS = {
+    "company_search": "/companies/search-jobs/{job_id}",
+    "cvc_create": "/cvc-models/creation-jobs/{job_id}",
+}
+_CVC_JOB_POLL_INTERVAL = 2.0
+
+
+def _cvc_job_status_path(kind: str, job_id: str) -> str:
+    return _CVC_JOB_STATUS_PATHS[kind].format(job_id=job_id)
+
+
+def _poll_cvc_job(client, kind: str, job_id: str, wait_seconds: int) -> dict:
+    """Poll a background job until terminal state or the wait budget is exhausted."""
+    deadline = time.monotonic() + max(0, int(wait_seconds))
+    view: dict = {}
+    while True:
+        view = client.request(
+            "GET", _cvc_job_status_path(kind, job_id), timeout=30.0,
+        ) or {}
+        status = str(view.get("status") or "")
+        if status in ("succeeded", "failed") or time.monotonic() >= deadline:
+            return view
+        time.sleep(min(_CVC_JOB_POLL_INTERVAL, max(0.2, deadline - time.monotonic())))
+
+
+def _job_pending_payload(view: dict, *, tool: str, kind: str) -> dict:
+    """Return a job view plus a next action when the job is still running/failed."""
+    data = dict(view or {})
+    data.setdefault("kind", kind)
+    status = str(data.get("status") or "")
+    if status == "failed":
+        error = data.get("error") or {}
+        data["user_message"] = (
+            f"任务失败：{error.get('message') or '未知错误'}；"
+            f"{error.get('hint') or '请读取 error 后决定是否重试'}"
+        )
+    else:
+        data["user_message"] = "任务仍在执行；请用任务查询工具轮询，直到 succeeded/failed。"
+        data["next_actions"] = [{
+            "tool": tool,
+            "args": {"job_id": data.get("job_id")},
+            "hint": "每 5 秒查询一次；succeeded 后使用 result 继续下一步",
+        }]
+    return data
+
+
+def _is_async_unavailable(exc: Exception) -> bool:
+    """Old deployments without async job endpoints return 404/405."""
+    return getattr(exc, "status_code", None) in (404, 405) or type(exc).__name__ == "NotFoundError"
 
 
 @mcp.tool()
-def search_cvc_companies(query: str, language: str = "zh", limit: int = 8) -> dict:
+def search_cvc_companies(query: str, language: str = "zh", limit: int = 8,
+                         wait_seconds: int = 240) -> dict:
     """Search candidate companies before creating a CVC model.
+
+    Uses the async job endpoint first (``POST /companies/search-jobs``) and
+    polls up to ``wait_seconds``. If the job is still running, the result is a
+    job view; call ``get_company_search_job`` with its ``job_id`` to continue.
+    Old deployments without async endpoints automatically fall back to the
+    synchronous ``POST /companies/search``.
 
     Use this when the user gives an analysis goal but no ``cvc_id``, and no
     existing CVC matches the goal. Show the returned companies to the user;
@@ -1010,6 +1069,7 @@ def search_cvc_companies(query: str, language: str = "zh", limit: int = 8) -> di
         query: analysis goal / company name / industry / product category
         language: zh | en
         limit: max number of companies, 1-20 (default 8; 3-8 works best)
+        wait_seconds: max seconds to wait for the job, 0-240 (0 returns job_id immediately)
 
     Returns:
         dict: {ok, data: {query, query_type, query_topic, suggested_cvc_name,
@@ -1017,6 +1077,8 @@ def search_cvc_companies(query: str, language: str = "zh", limit: int = 8) -> di
               products[], markets[], competitors[], customers[], selected}],
               total, default_selection, selection_hint, not_found,
               next_actions}, meta}
+        If the job is still running: {ok, data: {job_id, kind, status, poll,
+              next_actions, user_message}, meta}
     """
     q = (query or "").strip()
     if len(q) < 2:
@@ -1025,16 +1087,32 @@ def search_cvc_companies(query: str, language: str = "zh", limit: int = 8) -> di
         return _report_invalid("language must be zh or en", {"language": language})
     if not 1 <= limit <= 20:
         return _report_invalid("limit must be between 1 and 20", {"limit": limit})
+    if not 0 <= wait_seconds <= 240:
+        return _report_invalid("wait_seconds must be between 0 and 240", {"wait_seconds": wait_seconds})
     client = get_report_client()
-    return _report_call(
-        lambda: client.request(
-            "POST", "/companies/search",
-            json_body={"query": q, "language": language, "limit": int(limit)},
-            # 首次检索走 LLM 画像，实测可达 2~3 分钟；默认 120s 会误判超时
-            timeout=240.0,
-        ),
-        client,
-    )
+
+    def call():
+        payload = {"query": q, "language": language, "limit": int(limit)}
+        try:
+            created = client.request(
+                "POST", "/companies/search-jobs", json_body=payload, timeout=30.0,
+            ) or {}
+        except Exception as exc:  # noqa: BLE001 - old deployment fallback
+            if not _is_async_unavailable(exc):
+                raise
+            # 旧部署兜底：同步接口最长 240s
+            return client.request(
+                "POST", "/companies/search", json_body=payload, timeout=240.0,
+            )
+        job_id = str(created.get("job_id") or "")
+        if not job_id or wait_seconds <= 0:
+            return _job_pending_payload(created, tool="get_company_search_job", kind="company_search")
+        view = _poll_cvc_job(client, "company_search", job_id, wait_seconds)
+        if str(view.get("status") or "") == "succeeded":
+            return view.get("result") or {}
+        return _job_pending_payload(view, tool="get_company_search_job", kind="company_search")
+
+    return _report_call(call, client)
 
 
 @mcp.tool()
@@ -1048,8 +1126,14 @@ def create_cvc_model(
     language: str = "zh",
     overwrite: bool = False,
     idempotency_key: str = "",
+    wait_seconds: int = 30,
 ) -> dict:
     """Create a CVC model draft (then call rebuild_cvc_model to start building).
+
+    Uses the async job endpoint first (``POST /cvc-models/creation-jobs``) and
+    polls up to ``wait_seconds``. If the job is still running, call
+    ``get_cvc_creation_job`` with its ``job_id``. Old deployments without async
+    endpoints automatically fall back to the synchronous ``POST /cvc-models``.
 
     ⚠️ Building takes about **10 minutes**; the platform emails the tenant's
     registered address when it finishes. Tell the user this and do not block
@@ -1070,11 +1154,14 @@ def create_cvc_model(
         language: zh | en
         overwrite: replace an existing CVC with the same name (dangerous)
         idempotency_key: optional client-generated key (8-128 chars)
+        wait_seconds: max seconds to wait for creation, 0-180 (0 returns job_id immediately)
 
     Returns:
         dict: {ok, data: {cvc_id, status, build_readiness, warnings,
               build_status_url, phase_plan, poll, next_actions, user_message,
               next_step}, meta}
+        If the job is still running: {ok, data: {job_id, kind, status, poll,
+              next_actions, user_message}, meta}
     """
     title = (name or "").strip()
     if not title:
@@ -1103,23 +1190,11 @@ def create_cvc_model(
         return _report_invalid(
             "idempotency_key must be 8-128 characters", {"length": len(idempotency_key)},
         )
+    if not 0 <= wait_seconds <= 180:
+        return _report_invalid("wait_seconds must be between 0 and 180", {"wait_seconds": wait_seconds})
     client = get_report_client()
 
-    def call():
-        data = client.request(
-            "POST", "/cvc-models",
-            json_body={
-                "name": title,
-                "description": description or "",
-                "search_input": search_input or title,
-                "query_type": query_type or "industry",
-                "query_topic": query_topic or "",
-                "language": language,
-                "overwrite": bool(overwrite),
-                "companies": normalized,
-            },
-            extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
-        )
+    def _decorate(data):
         if isinstance(data, dict):
             data["user_message"] = (
                 "价值链已创建并等待构建：约 10 分钟；完成后系统会向注册邮箱发送邮件通知。"
@@ -1136,7 +1211,81 @@ def create_cvc_model(
             }
         return data
 
+    def call():
+        body = {
+            "name": title,
+            "description": description or "",
+            "search_input": search_input or title,
+            "query_type": query_type or "industry",
+            "query_topic": query_topic or "",
+            "language": language,
+            "overwrite": bool(overwrite),
+            "companies": normalized,
+        }
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+        try:
+            created = client.request(
+                "POST", "/cvc-models/creation-jobs",
+                json_body=body, extra_headers=headers, timeout=30.0,
+            ) or {}
+        except Exception as exc:  # noqa: BLE001 - old deployment fallback
+            if not _is_async_unavailable(exc):
+                raise
+            return _decorate(client.request(
+                "POST", "/cvc-models", json_body=body,
+                extra_headers=headers, timeout=120.0,
+            ))
+        job_id = str(created.get("job_id") or "")
+        if not job_id or wait_seconds <= 0:
+            return _job_pending_payload(created, tool="get_cvc_creation_job", kind="cvc_create")
+        view = _poll_cvc_job(client, "cvc_create", job_id, wait_seconds)
+        if str(view.get("status") or "") == "succeeded":
+            return _decorate(view.get("result") or {})
+        return _job_pending_payload(view, tool="get_cvc_creation_job", kind="cvc_create")
+
     return _report_call(call, client)
+
+
+@mcp.tool()
+def get_company_search_job(job_id: str) -> dict:
+    """Poll an async company-search job created by ``search_cvc_companies``.
+
+    Args:
+        job_id: job id returned by ``search_cvc_companies`` (csjob-...)
+
+    Returns:
+        dict: {ok, data: {job_id, kind, status, result, error, poll}, meta}
+        ``result`` is the same payload as the synchronous search when
+        ``status="succeeded"``.
+    """
+    if not job_id or not str(job_id).strip():
+        return _report_invalid("job_id is required", {"job_id": job_id})
+    client = get_report_client()
+    return _report_call(
+        lambda: client.request("GET", f"/companies/search-jobs/{job_id}", timeout=30.0),
+        client,
+    )
+
+
+@mcp.tool()
+def get_cvc_creation_job(job_id: str) -> dict:
+    """Poll an async CVC-creation job created by ``create_cvc_model``.
+
+    Args:
+        job_id: job id returned by ``create_cvc_model`` (cvcjob-...)
+
+    Returns:
+        dict: {ok, data: {job_id, kind, status, result, error, poll}, meta}
+        ``result`` contains ``cvc_id`` / ``build_readiness`` when
+        ``status="succeeded"``.
+    """
+    if not job_id or not str(job_id).strip():
+        return _report_invalid("job_id is required", {"job_id": job_id})
+    client = get_report_client()
+    return _report_call(
+        lambda: client.request("GET", f"/cvc-models/creation-jobs/{job_id}", timeout=30.0),
+        client,
+    )
 
 
 @mcp.tool()
@@ -1883,7 +2032,7 @@ def casee_health() -> dict:
     description="Create a CVC from a bare analysis goal: search companies → user confirms (all by default) → create → rebuild → ~10 min + completion email.",
 )
 def cvc_creation_prompt(query: str = "", cvc_name: str = "") -> str:
-    """Reusable CVC-creation recipe exposed via prompts/list (v1.5)."""
+    """Reusable CVC-creation recipe exposed via prompts/list (v1.6)."""
     goal = query or "<analysis goal>"
     name = cvc_name or "<suggested_cvc_name>"
     return f"""Use the CaSee MCP tools to turn an analysis goal into a buildable CVC.
@@ -1891,7 +2040,9 @@ Goal: `{goal}`
 
 Follow this order; never invent companies:
 
-1. search_cvc_companies(query="{goal}", limit=8)
+1. search_cvc_companies(query="{goal}", limit=8, wait_seconds=240)
+   - If data.status is queued/running: call get_company_search_job(job_id=...)
+     and poll every 5 seconds until succeeded/failed.
    - If items is empty: ask the user for a more specific industry/company name,
      or for 3-8 company names. Do not fabricate.
    - Show the list as: index. name | main_business | website
@@ -1903,7 +2054,10 @@ Follow this order; never invent companies:
      companies=<selected items, keep products/markets/competitors>,
      query_topic="{goal}",
      query_type="industry",
+     wait_seconds=30,
    )
+   - If data.status is queued/running: call get_cvc_creation_job(job_id=...)
+     and poll every 5 seconds until succeeded/failed.
    - If data.build_readiness.ready is false or data.warnings is non-empty:
      tell the user what is missing before building (it may fail in phase 1).
 4. rebuild_cvc_model(cvc_id=<cvc_id>, confirm=true, dry_run=false, backup=true)

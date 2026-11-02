@@ -42,10 +42,10 @@ echo "CASEE_API_KEY=casee_xxx" > .env
 
 # 2. Pull or load the image
 # Option A: Pull from the registry
-docker pull casee-mcp-server:1.4.0
+docker pull casee-mcp-server:1.6.0
 
 # Option B: Load from a local tar file
-docker load -i casee-mcp-server-1.0.0.tar
+docker load -i casee-mcp-server-1.6.0.tar
 
 # 3. Start the service
 docker compose -f docker/docker-compose.server.yml up -d
@@ -61,10 +61,10 @@ docker compose -f docker/docker-compose.server.yml ps
 docker compose -f docker/docker-compose.yml build
 
 # Export the image as a tar file
-docker save casee-mcp-server:1.4.0 -o casee-mcp-server-1.0.0.tar
+docker save casee-mcp-server:1.6.0 -o casee-mcp-server-1.6.0.tar
 
 # Import the image on the target server
-docker load -i casee-mcp-server-1.0.0.tar
+docker load -i casee-mcp-server-1.6.0.tar
 ```
 
 ## Environment Variables

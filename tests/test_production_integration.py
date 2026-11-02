@@ -85,7 +85,7 @@ def session():
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {
             "protocolVersion": "2025-03-26", "capabilities": {},
-            "clientInfo": {"name": "casee-live-test", "version": "1.4.0"},
+            "clientInfo": {"name": "casee-live-test", "version": "1.6.0"},
         },
     })
     assert resp.status_code == 200, resp.text
@@ -124,7 +124,7 @@ class TestProductionLive:
         assert resp.status_code == 200
         data = parse_jsonrpc(resp)
         tools = {t["name"] for t in data["result"]["tools"]}
-        assert len(tools) == 26
+        assert len(tools) == 28
         for expected in ("find_trusted_sources", "search_intelligence",
                          "analyze_trend", "aggregate_by_source",
                          "semantic_search_tool", "search_with_cvc",
@@ -134,14 +134,15 @@ class TestProductionLive:
                          "rebuild_cvc_model", "backup_cvc_intelligence",
                          "intelligence_purge_tool",
                          "intelligence_purge_status_tool",
-                         # v1.4.0 report tools
+                         # v1.4 report tools
                          "list_report_templates", "plan_report",
                          "generate_report", "get_report_job",
                          "list_report_jobs", "share_report",
                          "casee_health",
-                         # v1.5.0 CVC creation tools
+                         # v1.5/v1.6 CVC creation + async job tools
                          "search_cvc_companies", "create_cvc_model",
-                         "get_cvc_build_status"):
+                         "get_cvc_build_status", "get_company_search_job",
+                         "get_cvc_creation_job"):
             assert expected in tools
 
     def _call_raw(self, sid, name, arguments, call_id):

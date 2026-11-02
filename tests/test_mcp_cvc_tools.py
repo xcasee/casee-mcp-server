@@ -1,4 +1,4 @@
-"""Tests for the v1.5 CVC lifecycle tools (search / create / build status).
+"""Tests for the v1.6 CVC lifecycle tools (async search / create / job polling).
 
 All HTTP traffic is served by ``httpx.MockTransport``; no network is used.
 """
@@ -26,29 +26,54 @@ def _install(monkeypatch, handler):
 
 
 class TestSearchCvcCompanies:
-    def test_posts_query_and_returns_selection_defaults(self, monkeypatch):
-        seen = {}
+    def test_creates_job_then_returns_selection_defaults(self, monkeypatch):
+        seen = {"paths": []}
 
         def handler(request):
-            seen["path"] = request.url.path
-            seen["body"] = json.loads(request.content)
+            seen["paths"].append(request.url.path)
+            if request.method == "POST":
+                seen["body"] = json.loads(request.content)
+                return _ok({"job_id": "csjob-test", "status": "queued",
+                            "kind": "company_search"})
             return _ok({
-                "items": [{"name": "大连融科储能", "selected": True,
-                           "products": ["全钒液流电池"]}],
-                "total": 1,
-                "default_selection": "all",
-                "selection_hint": "已默认全选",
-                "suggested_cvc_name": "价值链-长时储能",
+                "job_id": "csjob-test",
+                "status": "succeeded",
+                "result": {
+                    "items": [{"name": "大连融科储能", "selected": True,
+                               "products": ["全钒液流电池"]}],
+                    "total": 1,
+                    "default_selection": "all",
+                    "selection_hint": "已默认全选",
+                    "suggested_cvc_name": "价值链-长时储能",
+                },
             })
 
         _install(monkeypatch, handler)
         res = srv.search_cvc_companies(query="长时储能", limit=5)
 
         assert res["ok"] is True
-        assert seen["path"].endswith("/companies/search")
+        assert seen["paths"][0].endswith("/companies/search-jobs")
+        assert seen["paths"][1].endswith("/companies/search-jobs/csjob-test")
         assert seen["body"] == {"query": "长时储能", "language": "zh", "limit": 5}
         assert res["data"]["default_selection"] == "all"
         assert res["data"]["items"][0]["selected"] is True
+
+    def test_wait_zero_returns_job_without_polling(self, monkeypatch):
+        seen = {"paths": []}
+
+        def handler(request):
+            seen["paths"].append(request.url.path)
+            return _ok({"job_id": "csjob-test", "status": "queued",
+                        "kind": "company_search"})
+
+        _install(monkeypatch, handler)
+        res = srv.search_cvc_companies(query="长时储能", wait_seconds=0)
+
+        assert res["ok"] is True
+        assert res["data"]["job_id"] == "csjob-test"
+        assert res["data"]["status"] == "queued"
+        assert res["data"]["next_actions"][0]["tool"] == "get_company_search_job"
+        assert len(seen["paths"]) == 1
 
     def test_rejects_short_query_without_http(self, monkeypatch):
         def handler(request):  # pragma: no cover - must not be called
@@ -77,17 +102,24 @@ class TestSearchCvcCompanies:
 
 
 class TestCreateCvcModel:
-    def test_normalizes_companies_and_adds_next_step(self, monkeypatch):
-        seen = {}
+    def test_creates_job_then_adds_next_step(self, monkeypatch):
+        seen = {"paths": []}
 
         def handler(request):
-            seen["path"] = request.url.path
-            seen["body"] = json.loads(request.content)
-            seen["idem"] = request.headers.get("Idempotency-Key")
+            seen["paths"].append(request.url.path)
+            if request.method == "POST":
+                seen["body"] = json.loads(request.content)
+                seen["idem"] = request.headers.get("Idempotency-Key")
+                return _ok({"job_id": "cvcjob-test", "status": "queued",
+                            "kind": "cvc_create"})
             return _ok({
-                "cvc_id": "cvc_abcd1234",
-                "status": "draft",
-                "build_readiness": {"ready": True, "warnings": []},
+                "job_id": "cvcjob-test",
+                "status": "succeeded",
+                "result": {
+                    "cvc_id": "cvc_abcd1234",
+                    "status": "draft",
+                    "build_readiness": {"ready": True, "warnings": []},
+                },
             })
 
         _install(monkeypatch, handler)
@@ -99,7 +131,8 @@ class TestCreateCvcModel:
         )
 
         assert res["ok"] is True
-        assert seen["path"].endswith("/cvc-models")
+        assert seen["paths"][0].endswith("/cvc-models/creation-jobs")
+        assert seen["paths"][1].endswith("/cvc-models/creation-jobs/cvcjob-test")
         assert seen["body"]["companies"] == [
             "大连融科储能", {"name": "宁德时代", "products": ["储能电池"]},
         ]
@@ -125,6 +158,37 @@ class TestCreateCvcModel:
 
         assert res["ok"] is False
         assert "companies[0]" in res["message"]
+
+
+class TestJobPollingTools:
+    def test_get_company_search_job(self, monkeypatch):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            return _ok({"job_id": "csjob-test", "status": "running", "kind": "company_search"})
+
+        _install(monkeypatch, handler)
+        res = srv.get_company_search_job("csjob-test")
+
+        assert res["ok"] is True
+        assert seen["path"].endswith("/companies/search-jobs/csjob-test")
+        assert res["data"]["status"] == "running"
+
+    def test_get_cvc_creation_job(self, monkeypatch):
+        seen = {}
+
+        def handler(request):
+            seen["path"] = request.url.path
+            return _ok({"job_id": "cvcjob-test", "status": "succeeded",
+                        "kind": "cvc_create", "result": {"cvc_id": "cvc_abcd1234"}})
+
+        _install(monkeypatch, handler)
+        res = srv.get_cvc_creation_job("cvcjob-test")
+
+        assert res["ok"] is True
+        assert seen["path"].endswith("/cvc-models/creation-jobs/cvcjob-test")
+        assert res["data"]["result"]["cvc_id"] == "cvc_abcd1234"
 
 
 class TestGetCvcBuildStatus:

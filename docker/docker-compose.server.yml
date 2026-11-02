@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   casee-mcp:
-    image: casee-mcp-server:1.5.0
+    image: casee-mcp-server:1.6.0
     container_name: casee-mcp-server
     ports:
       # 仅绑定回环 8101，由 nginx stream 网关在 8100 对外提供双协议服务：

@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.4.0-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.6.0-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -127,6 +127,8 @@ cd casee-mcp-server && pip install -e .
 ```bash
 export CASEE_API_KEY=casee_xxx                          # 您的 CaSee API Key (casee.me)
 export CASEE_API_BASE_URL=https://casee.me # CaSee 情报服务器 URL
+export CASEE_OPENAPI_BASE_URL=https://origin.casee.me/api/v1/openapi  # 直连源站，绕过 CDN
+export CASEE_PORTAL_BASE_URL=https://www.casee.me
 ```
 
 #### 第 4 步：启动服务器
@@ -165,7 +167,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-您应该看到 **26 个工具**：7 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具（模板 / 预检 / 生成 / 轮询 / 分享 / 备份 / 重建 / health），以及 3 个建链工具（企业检索 / 创建 / 构建进度）。
+您应该看到 **28 个工具**：7 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具（模板 / 预检 / 生成 / 轮询 / 分享 / 备份 / 重建 / health），以及 5 个建链工具（企业检索 / 创建 / 检索任务查询 / 创建任务查询 / 构建进度）。
 
 #### 第 6 步：使用 Docker 运行（生产环境推荐）
 
@@ -231,6 +233,11 @@ MCP 端点 : https://casee.me/mcp
 | `intelligence_purge_tool` | 按时间截止全量清除历史情报（支持 dry-run） | `older_than_days`、`end_date`、`dry_run`、`include_mongodb` |
 | `intelligence_purge_status_tool` | 全量清除进度与残留对账 | `task_id` |
 
+> **v1.6.0（2026-11-02）：** 建链工具改为异步任务接口
+> （`/companies/search-jobs` / `/cvc-models/creation-jobs`），新增
+> `wait_seconds` 等待预算；预算耗尽时用 `get_company_search_job` /
+> `get_cvc_creation_job` 继续轮询。
+
 ### 报告工具（v1.4）
 
 | 工具 | 描述 | 关键参数 |
@@ -248,20 +255,23 @@ MCP 端点 : https://casee.me/mcp
 报告类工具成功返回 `{ok: true, data, meta}`，`meta` 含 `elapsed_ms`、
 `request_id`（可得时）与 `next_poll_after_ms`；失败沿用下方结构化错误字段并附 `ok: false`。
 
-### 建链工具（v1.5）
+### 建链工具（v1.6）
 
 | 工具 | 描述 | 关键参数 |
 |------|------|----------|
-| `search_cvc_companies` | 按分析目标检索候选企业，返回 products/markets/competitors 建议值；`selected=true` 表示默认全选 | `query`、`language`、`limit` |
-| `create_cvc_model` | 创建价值链草稿（企业名或对象均可）；返回 `build_readiness` / `warnings` / `next_step` | `name`、`companies`、`query_topic`、`query_type`、`overwrite`、`idempotency_key` |
+| `search_cvc_companies` | 按分析目标检索候选企业：创建异步任务并在 `wait_seconds` 内轮询；返回 products/markets/competitors 建议值，`selected=true` 表示默认全选 | `query`、`language`、`limit`、`wait_seconds` |
+| `create_cvc_model` | 通过异步任务创建价值链草稿（企业名或对象均可）；返回 `build_readiness` / `warnings` / `next_step` | `name`、`companies`、`query_topic`、`query_type`、`overwrite`、`idempotency_key`、`wait_seconds` |
+| `get_company_search_job` | 按 `job_id` 查询企业检索任务；succeeded 时 `result` 与同步检索返回一致 | `job_id` |
+| `get_cvc_creation_job` | 按 `job_id` 查询价值链创建任务；succeeded 时 `result` 含 `cvc_id` / `build_readiness` | `job_id` |
 | `get_cvc_build_status` | 构建进度：阶段进度 / 当前步骤 / 失败归因 / 轮询建议；支持长轮询与增量日志 | `cvc_id`、`wait_seconds`、`include_logs`、`log_since` |
 
 > 建链流程：`search_cvc_companies`（把列表给用户确认，默认全选）→ `create_cvc_model`
 > → `rebuild_cvc_model(confirm=true, dry_run=false)` → 立即告知用户「约 10 分钟 + 邮件通知」，
-> 不要阻塞等待；用户回来问进度时用 `get_cvc_build_status` 汇报 `phases[]` 与
-> `failure.hint`。首次企业检索走 LLM 画像，可能需要 1~3 分钟（工具内已放宽超时）。
+> 不要阻塞等待。两个创建工具内部优先调用异步任务接口；等待预算耗尽时返回 `job_id`，
+> 继续用 `get_company_search_job` / `get_cvc_creation_job` 轮询。用户回来问进度时用
+> `get_cvc_build_status` 汇报 `phases[]` 与 `failure.hint`。
 
-### MCP Prompt 配方（v1.5）
+### MCP Prompt 配方（v1.6）
 
 `prompts/list` 暴露三个可复用配方：
 
@@ -369,7 +379,8 @@ pip install casee-mcp-server
       "command": "casee-mcp",
       "env": {
         "CASEE_API_KEY": "casee_xxx",
-        "CASEE_API_BASE_URL": "https://casee.me"
+        "CASEE_API_BASE_URL": "https://casee.me",
+        "CASEE_OPENAPI_BASE_URL": "https://origin.casee.me/api/v1/openapi"
       }
     }
   }
@@ -382,7 +393,7 @@ pip install casee-mcp-server
 
 #### 第 5 步：验证工具
 
-点击作曲家输入框旁边的**工具（锤子）图标**。您应该看到 `casee-intelligence` 及其 **26 个工具**（7 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、3 个建链工具）。
+点击作曲家输入框旁边的**工具（锤子）图标**。您应该看到 `casee-intelligence` 及其 **28 个工具**（7 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、5 个建链工具）。
 
 #### 第 6 步：试用
 
@@ -455,7 +466,7 @@ WorkBuddy 通过用户级配置文件注册 MCP 服务器：
 
 #### 第 4 步：验证工具
 
-打开 MCP 工具面板。您应该看到 `casee-intelligence` 及其 **26 个工具**（7 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、3 个建链工具）。
+打开 MCP 工具面板。您应该看到 `casee-intelligence` 及其 **28 个工具**（7 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、5 个建链工具）。
 
 #### 第 5 步：试用
 
@@ -516,7 +527,7 @@ Trae Work 通过全局配置文件 `~/.trae-cn/mcp_servers.json` 注册 MCP 服�
 
 #### 第 4 步：验证工具
 
-打开 MCP 工具面板。您应该看到 `casee-intelligence` 包含 **26 个工具**。根据需要启用。
+打开 MCP 工具面板。您应该看到 `casee-intelligence` 包含 **28 个工具**。根据需要启用。
 
 #### 第 5 步：请求情报
 
@@ -1009,7 +1020,7 @@ Agent:
 | **多维分析** | 趋势、来源聚合、供应商聚合 — 所有都是原生 MCP 工具 |
 | **实时新鲜度** | `days` 参数（1-365）允许您混合长期趋势与短期热点信号 |
 | **更少的手动工作** | 将"搜索 → 阅读 → 筛选 → 复制粘贴"替换为一个 Agent 提示 |
-| **可插拔到任何栈** | 相同的 26 个工具适用于 Claude Desktop、WorkBuddy、Trae Work、LangChain、CrewAI |
+| **可插拔到任何栈** | 相同的 28 个工具适用于 Claude Desktop、WorkBuddy、Trae Work、LangChain、CrewAI |
 
 ***
 

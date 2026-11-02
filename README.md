@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.4.0-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.6.0-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -127,6 +127,8 @@ cd casee-mcp-server && pip install -e .
 ```bash
 export CASEE_API_KEY=casee_xxx                          # your CaSee API key (casee.me)
 export CASEE_API_BASE_URL=https://casee.me # CaSee Intelligence Server URL
+export CASEE_OPENAPI_BASE_URL=https://origin.casee.me/api/v1/openapi  # direct origin, bypass CDN
+export CASEE_PORTAL_BASE_URL=https://www.casee.me
 ```
 
 #### Step 4: Start the server
@@ -165,7 +167,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-You should see all **26 tools**: the 6 query tools (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools, full-history purge, the v1.4 report tools (templates / plan / generate / poll / share / rebuild / health) and the v1.5 CVC creation tools (company search / create / build status).
+You should see all **28 tools**: the 6 query tools (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools, full-history purge, the v1.4 report tools (templates / plan / generate / poll / share / rebuild / health) and the v1.6 CVC creation tools (company search / create / job polling / build status).
 
 #### Step 6: Run with Docker (recommended for production)
 
@@ -229,6 +231,11 @@ The server exposes **26 MCP Tools** for AI Agents: retrieval, CVC administration
 > `cvc_cleanup_status_tool` / `cvc_reindex_tool`), and full-history purge
 > (`intelligence_purge_tool` / `intelligence_purge_status_tool`), powered by the
 > upgraded `casee` SDK **1.9.0**.
+>
+> **v1.6.0 (2026-11-02):** CVC creation tools now use async job endpoints
+> (`/companies/search-jobs` / `/cvc-models/creation-jobs`) with a bounded
+> `wait_seconds`; added `get_company_search_job` / `get_cvc_creation_job` for
+> job polling when the wait budget is exhausted.
 
 ### Report tools (v1.4)
 
@@ -248,22 +255,25 @@ Successful report tools return `{ok: true, data, meta}` where `meta` carries
 `elapsed_ms`, `request_id` (when available) and `next_poll_after_ms`.
 Failures keep the structured error fields below plus `ok: false`.
 
-### CVC creation tools (v1.5)
+### CVC creation tools (v1.6)
 
 | Tool | Description | Key Parameters |
 | --- | --- | --- |
-| `search_cvc_companies` | Search candidate companies for an analysis goal; returns proposed products/markets/competitors and `selected=true` (all by default) | `query`, `language`, `limit` |
-| `create_cvc_model` | Create a CVC draft (company names or objects); returns `build_readiness`, `warnings` and `next_step` | `name`, `companies`, `query_topic`, `query_type`, `overwrite`, `idempotency_key` |
+| `search_cvc_companies` | Search candidate companies for an analysis goal; creates an async job and polls up to `wait_seconds`; returns proposed products/markets/competitors and `selected=true` (all by default) | `query`, `language`, `limit`, `wait_seconds` |
+| `create_cvc_model` | Create a CVC draft (company names or objects) via an async job; returns `build_readiness`, `warnings` and `next_step` | `name`, `companies`, `query_topic`, `query_type`, `overwrite`, `idempotency_key`, `wait_seconds` |
+| `get_company_search_job` | Poll a company-search job by `job_id`; `result` matches the synchronous search payload when succeeded | `job_id` |
+| `get_cvc_creation_job` | Poll a CVC-creation job by `job_id`; `result` contains `cvc_id` / `build_readiness` when succeeded | `job_id` |
 | `get_cvc_build_status` | Phase progress, current step, failure attribution and polling hints; supports long-poll and incremental logs | `cvc_id`, `wait_seconds`, `include_logs`, `log_since` |
 
 > Flow: `search_cvc_companies` (show the list, all selected by default) →
 > `create_cvc_model` → `rebuild_cvc_model(confirm=true, dry_run=false)` → tell the
 > user "about 10 minutes; a completion email will be sent" and do **not** block.
-> When the user asks later, call `get_cvc_build_status` and report `phases[]` /
-> `failure.hint`. The first company search runs an LLM profile and may take 1-3
-> minutes (the tool uses a 240s timeout).
+> Both creation tools use the async job endpoints and return a `job_id` when the
+> wait budget is exhausted; continue with `get_company_search_job` /
+> `get_cvc_creation_job`. When the user asks later, call `get_cvc_build_status`
+> and report `phases[]` / `failure.hint`.
 
-### MCP prompts (v1.5)
+### MCP prompts (v1.6)
 
 `prompts/list` exposes three reusable recipes:
 
@@ -371,7 +381,8 @@ If the file does not exist, create it.
       "command": "casee-mcp",
       "env": {
         "CASEE_API_KEY": "casee_xxx",
-        "CASEE_API_BASE_URL": "https://casee.me"
+        "CASEE_API_BASE_URL": "https://casee.me",
+        "CASEE_OPENAPI_BASE_URL": "https://origin.casee.me/api/v1/openapi"
       }
     }
   }
@@ -384,7 +395,7 @@ Fully quit (Cmd+Q / Alt+F4) and relaunch Claude Desktop so it re-reads the confi
 
 #### Step 5: Verify the tools
 
-Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **26 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
+Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **28 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
 
 #### Step 6: Try it
 
@@ -457,7 +468,7 @@ Save `.workbuddy/mcp.json`, then trigger a config reload in WorkBuddy (typically
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with its **26 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
+Open the MCP tool panel. You should see `casee-intelligence` with its **28 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
 
 #### Step 5: Try it
 
@@ -518,7 +529,7 @@ Reload the MCP configuration (or restart Trae Work) so it picks up the new serve
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with **26 tools**. Enable the ones you need.
+Open the MCP tool panel. You should see `casee-intelligence` with **28 tools**. Enable the ones you need.
 
 #### Step 5: Ask for intelligence
 
