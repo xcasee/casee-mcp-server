@@ -125,7 +125,7 @@ cd casee-mcp-server && pip install -e .
 #### 第 3 步：配置环境变量
 
 ```bash
-export CASEE_API_KEY=casee_xxx                          # 您的 CaSee API Key (casee.me)
+export CASEE_IS_API_KEY=casee_xxx                          # 您的 CaSee API Key (casee.me)
 export CASEE_API_BASE_URL=https://casee.me # CaSee 情报服务器 URL
 export CASEE_OPENAPI_BASE_URL=https://origin.casee.me/api/v1/openapi  # 直连源站，绕过 CDN
 export CASEE_PORTAL_BASE_URL=https://www.casee.me
@@ -173,7 +173,7 @@ curl -X POST http://localhost:8100/mcp \
 
 ```bash
 # 1. 配置您的 API Key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 2. 构建并启动
 docker compose -f docker/docker-compose.yml up -d
@@ -195,7 +195,7 @@ MCP 端点 : https://casee.me/mcp
 后端      : CaSee 情报服务器（自动解析）
 ```
 
-只需从 [https://casee.me](https://casee.me) 获取您的 `CASEE_API_KEY`，并将 URL 接入您的 AI Agent。直接跳转到[平台集成](#-平台集成)部分，查看每个平台的逐步指南 — 无需 Python，无需 Docker。
+只需从 [https://casee.me](https://casee.me) 获取您的 `CASEE_IS_API_KEY`，并将 URL 接入您的 AI Agent。直接跳转到[平台集成](#-平台集成)部分，查看每个平台的逐步指南 — 无需 Python，无需 Docker。
 
 > **提示**：在配置客户端之前，快速检查的方法是对托管端点运行附带的测试套件：
 >
@@ -378,7 +378,7 @@ pip install casee-mcp-server
     "casee-intelligence": {
       "command": "casee-mcp",
       "env": {
-        "CASEE_API_KEY": "casee_xxx",
+        "CASEE_IS_API_KEY": "casee_xxx",
         "CASEE_API_BASE_URL": "https://casee.me",
         "CASEE_OPENAPI_BASE_URL": "https://origin.casee.me/api/v1/openapi"
       }
@@ -568,7 +568,7 @@ class CaseeSearchTool(BaseTool):
         async with stdio_client(
             StdioServerParameters(
                 command="casee-mcp",
-                env={"CASEE_API_KEY": "casee_xxx"}
+                env={"CASEE_IS_API_KEY": "casee_xxx"}
             )
         ) as (read, write):
             async with ClientSession(read, write) as session:
@@ -631,7 +631,7 @@ from langchain.tools import tool
 async def search_intel(q: str) -> str:
     """检索竞争情报。q：查询语法，如 +EV +(battery|charging)"""
     async with stdio_client(
-        StdioServerParameters(command="casee-mcp", env={"CASEE_API_KEY": "casee_xxx"})
+        StdioServerParameters(command="casee-mcp", env={"CASEE_IS_API_KEY": "casee_xxx"})
     ) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -686,7 +686,7 @@ result = crew.kickoff()
 | `PRODUCT_ACCESS_DENIED` | 403 | API Key 有效，但租户未开通所需产品模块 | 不要重试；请管理员开通对应产品 |
 | `SCOPE_DENIED` | 403 | API Key 缺少所需 scope | 重新创建具备对应 scope 的 Key |
 | `TENANT_DISABLED` | 403 | 租户已被禁用 | 联系管理员恢复 |
-| `AUTHENTICATION_FAILED` | 401 | API Key 缺失/无效/已撤销 | 检查 `CASEE_API_KEY` 或重新创建 Key |
+| `AUTHENTICATION_FAILED` | 401 | API Key 缺失/无效/已撤销 | 检查 `CASEE_IS_API_KEY` 或重新创建 Key |
 | `RATE_LIMITED` | 429 | 频率或配额超限 | 按 `details.retry_after` 退避后重试 |
 | `VALIDATION_ERROR` | 422 | 请求参数不合法 | 按 `details` 修正请求 |
 | `NOT_FOUND` | 404 | 资源不存在（如 `cvc_model_id`） | 核对标识 |
@@ -775,7 +775,7 @@ git clone https://github.com/casee/casee-mcp-server.git
 cd casee-mcp-server
 
 # 设置您的 API Key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 启动
 docker compose -f docker/docker-compose.yml up -d
@@ -793,7 +793,7 @@ curl -X POST http://localhost:8100/mcp \
 
 | 环境变量 | 必需 | 默认值 | 描述 |
 |---------|------|--------|------|
-| `CASEE_API_KEY` | 是 | — | CaSee API Key（在 <https://casee.me> 获取） |
+| `CASEE_IS_API_KEY` | 是 | — | CaSee API Key（在 <https://casee.me> 获取） |
 | `CASEE_API_BASE_URL` | 否 | `https://casee.me` | CaSee 情报服务器 URL |
 | `CASEE_TIMEOUT` | 否 | `30` | 请求超时（秒） |
 | `MCP_TRANSPORT` | 否 | `stdio` | `stdio` 或 `streamable-http` |
@@ -889,7 +889,7 @@ curl -X POST http://localhost:8100/mcp \
 **直接 API：**
 
 ```bash
-curl -H "X-API-Key: $CASEE_API_KEY" \
+curl -H "X-API-Key: $CASEE_IS_API_KEY" \
   "https://casee.me/v1/sources/search?category=wire&min_tscore=0.6&sample_size=2"
 ```
 
@@ -937,7 +937,7 @@ curl -H "X-API-Key: $CASEE_API_KEY" \
 **直接 API：**
 
 ```bash
-curl -G -H "X-API-Key: $CASEE_API_KEY" \
+curl -G -H "X-API-Key: $CASEE_IS_API_KEY" \
   "https://casee.me/v1/searchx" \
   --data-urlencode 'q=+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US) -rumor' \
   --data-urlencode 'source_ids=reuters-business,ap-news,ansa' \

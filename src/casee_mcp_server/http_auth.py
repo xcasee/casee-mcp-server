@@ -206,7 +206,7 @@ class ApiKeyAuthMiddleware:
             401,
             "Invalid or revoked API key.",
             error_code="AUTH_INVALID_KEY",
-            hint="Check CASEE_API_KEY or create a new API key.",
+            hint="Check CASEE_IS_API_KEY (or legacy CASEE_API_KEY) or create a new API key.",
             retryable=False,
         )
 

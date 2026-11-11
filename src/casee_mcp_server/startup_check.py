@@ -21,6 +21,7 @@ import httpx
 
 from casee.constants import DEFAULT_API_BASE_URL
 
+from .key_aliases import resolve_is_api_key
 from .reports import resolve_openapi_base
 
 logger = logging.getLogger("casee_mcp_server.startup")
@@ -92,7 +93,7 @@ def _probe(url: str, api_key: str) -> Dict[str, Any]:
 
 def run_startup_self_check(transport: str) -> bool:
     """Probe both planes and log one summary; returns True when both are usable."""
-    api_key = os.environ.get("CASEE_API_KEY", "").strip()
+    api_key = resolve_is_api_key()
     is_base = _is_base()
     openapi_base = resolve_openapi_base()
 
@@ -103,8 +104,9 @@ def run_startup_self_check(transport: str) -> bool:
 
     if not api_key:
         logger.error(
-            "startup-check FAIL: CASEE_API_KEY is empty; outbound CaSee calls "
-            "have no credential (stdio/anonymous requests cannot work)."
+            "startup-check FAIL: CASEE_IS_API_KEY (or legacy CASEE_API_KEY) is "
+            "empty; outbound CaSee calls have no credential "
+            "(stdio/anonymous requests cannot work)."
         )
         return False
 
@@ -125,7 +127,7 @@ def run_startup_self_check(transport: str) -> bool:
 
     if api_key.startswith("sk_"):
         logger.warning(
-            "startup-check note: CASEE_API_KEY starts with 'sk_'; keys created "
+            "startup-check note: CASEE_IS_API_KEY starts with 'sk_'; keys created "
             "directly on is-server are usually not registered in the EIRS key "
             "store and will fail report / CVC-management tools with 40102."
         )
@@ -133,7 +135,7 @@ def run_startup_self_check(transport: str) -> bool:
     if transport == "streamable-http":
         logger.info(
             "startup-check note: each caller's X-API-Key is forwarded to both "
-            "planes; CASEE_API_KEY is only the stdio/anonymous fallback."
+            "planes; CASEE_IS_API_KEY is only the stdio/anonymous fallback."
         )
 
     planes_ok = int(is_result["ok"]) + int(eirs_result["ok"])

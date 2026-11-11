@@ -125,7 +125,7 @@ cd casee-mcp-server && pip install -e .
 #### Step 3: Configure environment variables
 
 ```bash
-export CASEE_API_KEY=casee_xxx                          # your CaSee API key (casee.me)
+export CASEE_IS_API_KEY=casee_xxx                          # your CaSee API key (casee.me)
 export CASEE_API_BASE_URL=https://casee.me # CaSee Intelligence Server URL
 export CASEE_OPENAPI_BASE_URL=https://origin.casee.me/api/v1/openapi  # direct origin, bypass CDN
 export CASEE_PORTAL_BASE_URL=https://www.casee.me
@@ -173,7 +173,7 @@ You should see all **28 tools**: the 6 query tools (`find_trusted_sources`, `sea
 
 ```bash
 # 1. configure your API key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 2. build & start
 docker compose -f docker/docker-compose.yml up -d
@@ -195,7 +195,7 @@ Server       : casee (26 MCP tools)
 Backend      : CaSee Intelligence Server (auto-resolved)
 ```
 
-Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plug the URL into your AI agent. Jump straight to [Platform Integrations](#-platform-integrations) for the per-platform walkthrough — no Python, no Docker required.
+Just grab your `CASEE_IS_API_KEY` from [https://casee.me](https://casee.me) and plug the URL into your AI agent. Jump straight to [Platform Integrations](#-platform-integrations) for the per-platform walkthrough — no Python, no Docker required.
 
 > **Tip**: For a quick sanity check before wiring a client, run the bundled test suite against the hosted endpoint:
 >
@@ -380,7 +380,7 @@ If the file does not exist, create it.
     "casee-intelligence": {
       "command": "casee-mcp",
       "env": {
-        "CASEE_API_KEY": "casee_xxx",
+        "CASEE_IS_API_KEY": "casee_xxx",
         "CASEE_API_BASE_URL": "https://casee.me",
         "CASEE_OPENAPI_BASE_URL": "https://origin.casee.me/api/v1/openapi"
       }
@@ -570,7 +570,7 @@ class CaseeSearchTool(BaseTool):
         async with stdio_client(
             StdioServerParameters(
                 command="casee-mcp",
-                env={"CASEE_API_KEY": "casee_xxx"}
+                env={"CASEE_IS_API_KEY": "casee_xxx"}
             )
         ) as (read, write):
             async with ClientSession(read, write) as session:
@@ -633,7 +633,7 @@ from langchain.tools import tool
 async def search_intel(q: str) -> str:
     """Search competitive intelligence. q: query syntax like +EV +(battery|charging)"""
     async with stdio_client(
-        StdioServerParameters(command="casee-mcp", env={"CASEE_API_KEY": "casee_xxx"})
+        StdioServerParameters(command="casee-mcp", env={"CASEE_IS_API_KEY": "casee_xxx"})
     ) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -688,7 +688,7 @@ Every MCP tool returns a JSON object. On failure, the payload is a structured er
 | `PRODUCT_ACCESS_DENIED` | 403 | API key is valid, but the tenant has not subscribed to the required product module | Do not retry; ask an administrator to enable the product |
 | `SCOPE_DENIED` | 403 | API key lacks a required scope | Create a key with the needed scope |
 | `TENANT_DISABLED` | 403 | Tenant account is disabled | Contact an administrator |
-| `AUTHENTICATION_FAILED` | 401 | API key missing/invalid/revoked | Check `CASEE_API_KEY` or create a new key |
+| `AUTHENTICATION_FAILED` | 401 | API key missing/invalid/revoked | Check `CASEE_IS_API_KEY` or create a new key |
 | `RATE_LIMITED` | 429 | Rate limit or quota exceeded | Retry after `details.retry_after` |
 | `VALIDATION_ERROR` | 422 | Request parameters invalid | Fix the request; see `details` |
 | `NOT_FOUND` | 404 | Resource not found (e.g. `cvc_model_id`) | Verify the identifier |
@@ -777,7 +777,7 @@ git clone https://github.com/xcasee/casee-mcp-server.git
 cd casee-mcp-server
 
 # Set your API key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # Start
 docker compose -f docker/docker-compose.yml up -d
@@ -795,7 +795,7 @@ curl -X POST http://localhost:8100/mcp \
 
 | Environment Variable | Required | Default                      | Description                               |
 | -------------------- | -------- | ---------------------------- | ----------------------------------------- |
-| `CASEE_API_KEY`      | Yes      | —                            | CaSee API Key (get at <https://casee.me>) |
+| `CASEE_IS_API_KEY`      | Yes      | —                            | CaSee API Key (get at <https://casee.me>) |
 | `CASEE_API_BASE_URL` | No       | `https://casee.me` | CaSee Intelligence Server URL             |
 | `CASEE_TIMEOUT`      | No       | `30`                         | Request timeout (seconds)                 |
 | `MCP_TRANSPORT`      | No       | `stdio`                      | `stdio` or `streamable-http`              |
@@ -892,7 +892,7 @@ In **Google-style query syntax** (the `q` parameter of `search_intelligence`):
 **Direct API:**
 
 ```bash
-curl -H "X-API-Key: $CASEE_API_KEY" \
+curl -H "X-API-Key: $CASEE_IS_API_KEY" \
   "https://casee.me/v1/sources/search?category=wire&min_tscore=0.6&sample_size=2"
 ```
 
@@ -940,7 +940,7 @@ Use the trusted `source_ids` from Step 2 with the query from Step 1.
 **Direct API:**
 
 ```bash
-curl -G -H "X-API-Key: $CASEE_API_KEY" \
+curl -G -H "X-API-Key: $CASEE_IS_API_KEY" \
   "https://casee.me/v1/searchx" \
   --data-urlencode 'q=+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US) -rumor' \
   --data-urlencode 'source_ids=reuters-business,ap-news,ansa' \

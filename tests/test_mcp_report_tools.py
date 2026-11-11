@@ -55,18 +55,25 @@ class TestBaseResolution:
 
 class TestClientKeyResolution:
     def test_dedicated_openapi_key_overrides(self, monkeypatch):
-        monkeypatch.setenv("CASEE_API_KEY", "casee_retrieval")
+        monkeypatch.setenv("CASEE_IS_API_KEY", "casee_is")
         monkeypatch.setenv("CASEE_OPENAPI_API_KEY", "casee_portal")
         assert ReportClient().api_key == "casee_portal"
 
-    def test_falls_back_to_casee_api_key(self, monkeypatch):
-        monkeypatch.setenv("CASEE_API_KEY", "casee_retrieval")
+    def test_falls_back_to_is_key(self, monkeypatch):
+        monkeypatch.setenv("CASEE_IS_API_KEY", "casee_is")
         monkeypatch.delenv("CASEE_OPENAPI_API_KEY", raising=False)
+        assert ReportClient().api_key == "casee_is"
+
+    def test_falls_back_to_legacy_casee_api_key(self, monkeypatch):
+        monkeypatch.delenv("CASEE_IS_API_KEY", raising=False)
+        monkeypatch.delenv("CASEE_OPENAPI_API_KEY", raising=False)
+        monkeypatch.setenv("CASEE_API_KEY", "casee_retrieval")
         assert ReportClient().api_key == "casee_retrieval"
 
-    def test_blank_openapi_key_falls_back(self, monkeypatch):
+    def test_blank_keys_fall_through(self, monkeypatch):
+        monkeypatch.setenv("CASEE_IS_API_KEY", "   ")
+        monkeypatch.delenv("CASEE_OPENAPI_API_KEY", raising=False)
         monkeypatch.setenv("CASEE_API_KEY", "casee_retrieval")
-        monkeypatch.setenv("CASEE_OPENAPI_API_KEY", "   ")
         assert ReportClient().api_key == "casee_retrieval"
 
 
@@ -345,7 +352,7 @@ class TestErrorMapping:
         result = srv.list_report_templates()
         assert result["ok"] is False
         assert result["error_code"] == "AUTHENTICATION_FAILED"
-        assert "CASEE_API_KEY" in result["hint"]
+        assert "CASEE_IS_API_KEY" in result["hint"]
 
     def test_not_found_maps_to_not_found(self, monkeypatch):
         _install(monkeypatch, lambda req: httpx.Response(404, json={

@@ -4,7 +4,7 @@ set -euo pipefail
 # ============================================================
 # CaSee MCP Server 生产环境部署脚本
 # Target: https://causalai.me:8100/mcp
-# MCP Server: v1.7.0  |  casee SDK: 1.9.0
+# MCP Server: v1.8.0  |  casee SDK: 1.9.0
 # ============================================================
 
 SERVER="121.43.113.132"
@@ -14,7 +14,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SDK_WHEEL="casee-1.9.0-py3-none-any.whl"
 
 echo "============================================"
-echo "  CaSee MCP Server Deployment (v1.7.0)"
+echo "  CaSee MCP Server Deployment (v1.8.0)"
 echo "  Target: ${SERVER}"
 echo "  Remote Dir: ${REMOTE_DIR}"
 echo "  SDK wheel: ${SDK_WHEEL}"
@@ -175,7 +175,7 @@ echo ""
 echo "============================================"
 echo "  Deployment Complete!"
 echo ""
-echo "  MCP Server ver: v1.7.0"
+echo "  MCP Server ver: v1.8.0"
 echo "  casee SDK ver:  1.9.0"
 echo "  Service URL:    http://${SERVER}:8100/mcp"
 echo "============================================"

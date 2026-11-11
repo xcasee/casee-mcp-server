@@ -68,7 +68,7 @@ class TestSafeCall:
 
         result = _safe_call(boom)
         assert result["error"] == "AuthenticationError"
-        assert "CASEE_API_KEY" in result["hint"]
+        assert "CASEE_IS_API_KEY" in result["hint"]
 
     def test_unexpected_error_wrapped(self):
         def boom():
@@ -173,7 +173,7 @@ class TestStructuredErrorContract:
         result = self._call(AuthenticationError("Invalid or revoked API key."))
         assert result["error_code"] == "AUTHENTICATION_FAILED"
         assert result["status_code"] == 401
-        assert "CASEE_API_KEY" in result["hint"]
+        assert "CASEE_IS_API_KEY" in result["hint"]
 
     def test_legacy_dict_repr_is_parsed(self):
         result = self._call(AuthenticationError(

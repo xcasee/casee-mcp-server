@@ -44,10 +44,10 @@ MCP prompts (v1.6):
 
 Startup:
     # stdio mode (recommended for WorkBuddy / Claude Desktop)
-    CASEE_API_KEY=sk_xxx python -m casee_mcp_server
+    CASEE_IS_API_KEY=casee_xxx python -m casee_mcp_server
 
     # Streamable-HTTP mode (recommended for Trae Work / WorkBuddy / remote agents)
-    CASEE_API_KEY=sk_xxx MCP_TRANSPORT=streamable-http python -m casee_mcp_server
+    CASEE_IS_API_KEY=casee_xxx MCP_TRANSPORT=streamable-http python -m casee_mcp_server
 
     # Opt in to single-JSON responses (avoids SSE parsing issues)
     MCP_JSON_RESPONSE=true
@@ -87,13 +87,19 @@ from casee.exceptions import (
     ValidationError,
 )
 
+from .key_aliases import apply_key_aliases
 from .reports import get_report_client
 from .request_context import bind_caller_api_key, get_caller_api_key
+
+# v1.8 rename: CASEE_IS_API_KEY is the semantic name for the is-server
+# retrieval key. Mirror it onto CASEE_API_KEY so the casee SDK (which reads
+# CASEE_API_KEY directly) sees the same key; must run before any SDK call.
+apply_key_aliases()
 
 
 mcp = MCPServer(
     name="casee",
-    version="1.7.0",
+    version="1.8.0",
     description="CaSee enterprise competitive-intelligence retrieval and report generation - "
                 "trusted-source lookup, complex retrieval, trend analysis, semantic search, "
                 "CVC creation / build tracking, report templates / pre-flight / generation / sharing",
@@ -105,7 +111,7 @@ mcp = MCPServer(
 
 # Release version kept here (not in __init__) to avoid a circular import:
 # __init__.py re-exports this value.
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 
 # ---- CVC model id validation (pattern ^cvc_[a-z0-9]{8,32}$) ----
@@ -153,7 +159,7 @@ _ERROR_POLICY = {
         "action": "contact_admin",
     },
     "AUTHENTICATION_FAILED": {
-        "hint": "Invalid or missing API key; check the CASEE_API_KEY environment variable.",
+        "hint": "Invalid or missing API key; check the CASEE_IS_API_KEY (or legacy CASEE_API_KEY) environment variable.",
         "retryable": False,
         "action": "reauthenticate",
     },
@@ -436,7 +442,8 @@ def _caller_key_kwargs() -> dict:
     """Return ``{"api_key": caller_key}`` when a verified caller key exists.
 
     Empty outside streamable-HTTP requests, which keeps the SDK's own
-    ``CASEE_API_KEY`` fallback untouched for stdio deployments.
+    ``CASEE_IS_API_KEY``/``CASEE_API_KEY`` fallback untouched for stdio
+    deployments.
     """
     key = get_caller_api_key()
     return {"api_key": key} if key else {}
@@ -462,7 +469,7 @@ def _diagnose_sdk_error(exc: CaseeError) -> str:
             "not a portal/static site."
         )
     if isinstance(exc, AuthenticationError):
-        return "Invalid or missing API key; check the CASEE_API_KEY environment variable."
+        return "Invalid or missing API key; check the CASEE_IS_API_KEY (or legacy CASEE_API_KEY) environment variable."
     if "timed out" in msg.lower():
         return "Request timed out; retry later or increase CASEE_TIMEOUT."
     return ""

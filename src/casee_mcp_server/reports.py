@@ -8,9 +8,11 @@ gateway and raises ``casee.exceptions`` so ``server._error_payload`` can reuse
 the existing structured error contract.
 
 Environment:
-    CASEE_API_KEY             API key sent as ``X-API-Key`` (never in the URL).
+    CASEE_IS_API_KEY          Key for the is-server retrieval plane; the
+                              stdio/anonymous fallback for OpenAPI calls too.
+                              ``CASEE_API_KEY`` is the deprecated legacy alias.
     CASEE_OPENAPI_API_KEY     Dedicated key for the OpenAPI report surface;
-                              overrides ``CASEE_API_KEY`` when set (the portal
+                              overrides ``CASEE_IS_API_KEY`` when set (the portal
                               OpenAPI platform and the intelligence server may
                               use separate key stores).
     CASEE_API_BASE_URL        Backend root, e.g. ``https://origin.casee.me``.
@@ -35,6 +37,7 @@ from casee.exceptions import (
     TimeoutError as CaseeTimeoutError,
 )
 
+from .key_aliases import resolve_is_api_key
 from .request_context import get_caller_api_key
 
 _OPENAPI_SUFFIX = "/api/v1/openapi"
@@ -146,7 +149,7 @@ class ReportClient:
     ) -> None:
         self.api_key = api_key if api_key is not None else (
             os.environ.get("CASEE_OPENAPI_API_KEY", "").strip()
-            or os.environ.get("CASEE_API_KEY", "")
+            or resolve_is_api_key()
         )
         self.base_url = resolve_openapi_base(base_url or "")
         self.portal_base_url = resolve_portal_base(portal_base_url or base_url or "")
@@ -303,7 +306,7 @@ def get_report_client() -> ReportClient:
     outbound calls keeps tenant isolation, Credits billing and revocation with
     the caller. A new client per request keeps ``last_request_id`` scoped to
     that call and performs no I/O. stdio mode falls back to the cached
-    ``CASEE_API_KEY`` client.
+    ``CASEE_IS_API_KEY`` client.
     """
     caller_key = get_caller_api_key()
     if caller_key:
