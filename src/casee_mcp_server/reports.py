@@ -35,6 +35,8 @@ from casee.exceptions import (
     TimeoutError as CaseeTimeoutError,
 )
 
+from .request_context import get_caller_api_key
+
 _OPENAPI_SUFFIX = "/api/v1/openapi"
 _DEFAULT_TIMEOUT = 120.0
 _MAX_RETRIES = 2  # 1 initial attempt + 2 retries
@@ -295,7 +297,17 @@ _default_client: Optional[ReportClient] = None
 
 
 def get_report_client() -> ReportClient:
-    """Return the process-wide report client (created on first use)."""
+    """Return a client bound to the verified caller key when there is one.
+
+    Streamable-HTTP requests carry the caller's ``X-API-Key``; using it for
+    outbound calls keeps tenant isolation, Credits billing and revocation with
+    the caller. A new client per request keeps ``last_request_id`` scoped to
+    that call and performs no I/O. stdio mode falls back to the cached
+    ``CASEE_API_KEY`` client.
+    """
+    caller_key = get_caller_api_key()
+    if caller_key:
+        return ReportClient(api_key=caller_key)
     global _default_client
     if _default_client is None:
         _default_client = ReportClient()

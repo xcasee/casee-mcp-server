@@ -762,6 +762,7 @@ Streamable-HTTP 网关开启 `MCP_REQUIRE_API_KEY=true` 时，受保护的 JSON-
 |---|---|---|
 | 401 | `AUTH_MISSING_KEY` | 缺少 `X-API-Key` 请求头 |
 | 401 | `AUTH_INVALID_KEY` | Key 无效或已撤销 |
+| 401 | `AUTH_KEY_PLANE_MISMATCH` | Key 在 is-server 有效，但未登记到 EIRS 开放 API；请改用门户生成的 `casee_...` 租户 Key |
 | 503 | `UPSTREAM_UNAVAILABLE` | Key 校验服务不可用；按 `Retry-After` 重试 |
 
 ***

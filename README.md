@@ -764,6 +764,7 @@ When the Streamable-HTTP gateway is enabled (`MCP_REQUIRE_API_KEY=true`), protec
 |---|---|---|
 | 401 | `AUTH_MISSING_KEY` | `X-API-Key` header missing |
 | 401 | `AUTH_INVALID_KEY` | Key invalid or revoked |
+| 401 | `AUTH_KEY_PLANE_MISMATCH` | Key works on is-server but is not registered in EIRS OpenAPI; use a `casee_...` tenant key from the portal |
 | 503 | `UPSTREAM_UNAVAILABLE` | Key-verification service unavailable; retry after `Retry-After` |
 
 ***

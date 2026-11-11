@@ -88,19 +88,24 @@ from casee.exceptions import (
 )
 
 from .reports import get_report_client
+from .request_context import bind_caller_api_key, get_caller_api_key
 
 
 mcp = MCPServer(
     name="casee",
-    version="1.6.0",
+    version="1.7.0",
     description="CaSee enterprise competitive-intelligence retrieval and report generation - "
                 "trusted-source lookup, complex retrieval, trend analysis, semantic search, "
                 "CVC creation / build tracking, report templates / pre-flight / generation / sharing",
+    # Bind X-API-Key per inbound MCP message so outbound CaSee calls run as the
+    # calling tenant. Must be an MCP middleware: tool handlers execute in the
+    # session receive task, where ASGI-layer context does not apply.
+    middleware=[bind_caller_api_key],
 )
 
 # Release version kept here (not in __init__) to avoid a circular import:
 # __init__.py re-exports this value.
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 
 # ---- CVC model id validation (pattern ^cvc_[a-z0-9]{8,32}$) ----
@@ -383,6 +388,14 @@ def _error_payload(exc: Exception) -> dict:
     elif code == "TENANT_DISABLED":
         for key, value in _CONTACT_DEFAULTS.items():
             details.setdefault(key, value)
+    elif code == "AUTHENTICATION_FAILED" and get_caller_api_key():
+        hint = (
+            "The caller X-API-Key was rejected by CaSee (40102). Use a "
+            "casee_... tenant key created at https://www.casee.me "
+            "(系统配置 → API Keys): it is registered in both is-server and "
+            "EIRS. IS-only sk_... keys cannot access report / "
+            "CVC-management endpoints."
+        )
     elif code in ("API_ERROR", "UNEXPECTED_ERROR"):
         hint = _diagnose_sdk_error(exc) or hint
 
@@ -419,8 +432,22 @@ def _safe_call(fn, *args, **kwargs):
         return payload
 
 
+def _caller_key_kwargs() -> dict:
+    """Return ``{"api_key": caller_key}`` when a verified caller key exists.
+
+    Empty outside streamable-HTTP requests, which keeps the SDK's own
+    ``CASEE_API_KEY`` fallback untouched for stdio deployments.
+    """
+    key = get_caller_api_key()
+    return {"api_key": key} if key else {}
+
+
 def _sdk_call(fn, **kwargs):
-    """Keyword-only convenience wrapper around :func:`_safe_call`."""
+    """Keyword-only convenience wrapper around :func:`_safe_call`.
+
+    Binds the verified caller key so retrieval runs as the calling tenant.
+    """
+    kwargs.update(_caller_key_kwargs())
     return _safe_call(fn, **kwargs)
 
 
@@ -939,6 +966,7 @@ def batch_search(
         groups,
         dedupe=dedupe,
         max_concurrency=max_concurrency,
+        **_caller_key_kwargs(),
     )
 
 
@@ -1144,7 +1172,9 @@ def create_cvc_model(
         companies: list of company names, or objects
             {name, name_en, website, products[], markets[], competitors[],
             customers[], partners[]} — pass the companies the user confirmed
-            (all by default) from ``search_cvc_companies``
+            (all by default) from ``search_cvc_companies``. Company names are
+            enriched by the backend from the latest search candidates; pass an
+            empty list to explicitly remove that entity category.
         description: research goal / description
         query_type: industry | company | product (metadata only)
         query_topic: industry/theme keywords (recommended; required when only
@@ -1355,7 +1385,7 @@ def cvc_stats_tool(cvc_model_id: CvcModelId) -> dict:
     err = _validate_cvc_model_id(cvc_model_id)
     if err:
         return {"error": "InvalidCvcModelId", "message": err}
-    return _safe_call(sdk_cvc_stats, cvc_model_id)
+    return _safe_call(sdk_cvc_stats, cvc_model_id, **_caller_key_kwargs())
 
 
 # ---- Tool 10: CVC cache reset ----
@@ -1382,7 +1412,7 @@ def cvc_cache_purge_tool(cvc_model_id: CvcModelId) -> dict:
     err = _validate_cvc_model_id(cvc_model_id)
     if err:
         return {"error": "InvalidCvcModelId", "message": err}
-    return _safe_call(sdk_cvc_cache_purge, cvc_model_id)
+    return _safe_call(sdk_cvc_cache_purge, cvc_model_id, **_caller_key_kwargs())
 
 
 # ---- Tool 11: CVC cleanup progress ----
@@ -1404,7 +1434,7 @@ def cvc_cleanup_status_tool(cvc_model_id: CvcModelId) -> dict:
     err = _validate_cvc_model_id(cvc_model_id)
     if err:
         return {"error": "InvalidCvcModelId", "message": err}
-    return _safe_call(sdk_cvc_cleanup_status, cvc_model_id)
+    return _safe_call(sdk_cvc_cleanup_status, cvc_model_id, **_caller_key_kwargs())
 
 
 # ---- Tool 12: CVC reindex - rebuild collection store ----
@@ -1429,7 +1459,7 @@ def cvc_reindex_tool(cvc_model_id: CvcModelId) -> dict:
     err = _validate_cvc_model_id(cvc_model_id)
     if err:
         return {"error": "InvalidCvcModelId", "message": err}
-    return _safe_call(sdk_cvc_reindex, cvc_model_id)
+    return _safe_call(sdk_cvc_reindex, cvc_model_id, **_caller_key_kwargs())
 
 
 # ---- Tool 13: full-history intelligence purge ----
@@ -1478,6 +1508,7 @@ def intelligence_purge_tool(
         cvc_model_ids=cvc_model_ids,
         include_mongodb=include_mongodb,
         dry_run=dry_run,
+        **_caller_key_kwargs(),
     )
 
 
@@ -1498,7 +1529,10 @@ def intelligence_purge_status_tool(task_id: str = "") -> dict:
     Returns:
         dict: task progress + per-store residual counts
     """
-    return _safe_call(sdk_intelligence_purge_status, task_id or None)
+    return _safe_call(
+        sdk_intelligence_purge_status, task_id or None,
+        **_caller_key_kwargs(),
+    )
 
 
 # ---- Report tools (v1.4) ----
@@ -2142,6 +2176,11 @@ def main():
     host = os.environ.get("MCP_HOST", "127.0.0.1")
     port = int(os.environ.get("MCP_PORT", "8100"))
     path = os.environ.get("MCP_PATH", "/mcp")
+
+    from .startup_check import is_strict, run_startup_self_check
+
+    if not run_startup_self_check(transport) and is_strict():
+        raise SystemExit(1)
 
     if transport == "streamable-http":
         import uvicorn
