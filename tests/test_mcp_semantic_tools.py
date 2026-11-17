@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from casee_mcp_server.server import (
     semantic_search_tool,
     search_with_cvc,
-    find_trusted_sources,
 )
 
 
@@ -172,66 +171,47 @@ class TestSearchWithCvc:
         assert "cvc_model_id" not in call_kwargs or call_kwargs.get("cvc_model_id") == ""
 
     @patch("casee_mcp_server.server.search_advanced")
-    def test_search_with_cvc_with_source_ids(self, mock_search_advanced):
-        """Test search_with_cvc with source_ids filtering."""
+    def test_search_with_cvc_forwards_scope_only(self, mock_search_advanced):
+        """search_with_cvc must not accept or forward source identifiers."""
         mock_search_advanced.return_value = {
             "count": 3,
             "items": [],
         }
 
-        result = search_with_cvc(
+        search_with_cvc(
             q="+EV +battery",
             cvc_model_id="cvc_abcdef12",
-            source_ids=["reuters", "bloomberg"],
             min_tscore=0.6,
         )
 
-        # Verify source_ids were passed
         call_kwargs = mock_search_advanced.call_args[1]
-        assert call_kwargs["source_ids"] == ["reuters", "bloomberg"]
+        assert "source_ids" not in call_kwargs
 
 
-class TestThreeStageWorkflow:
-    """Test the three-stage intelligent retrieval workflow."""
+class TestTwoStageWorkflow:
+    """Test the two-stage intelligent retrieval workflow."""
 
-    @patch("casee_mcp_server.server.search_sources")
     @patch("casee_mcp_server.server.search_advanced")
     @patch("casee_mcp_server.server.semantic_search")
-    def test_three_stage_workflow(self, mock_semantic_search, mock_search_advanced, mock_search_sources):
-        """Complete three-stage workflow: sources -> search_with_cvc -> semantic_search."""
-        # Stage 1: find trusted sources
-        mock_search_sources.return_value = {
-            "sources": [
-                {"source_id": "reuters", "tscore": 0.81},
-                {"source_id": "bloomberg", "tscore": 0.78},
-            ]
-        }
-
-        stage1_result = find_trusted_sources(
-            category="wire",
-            min_tscore=0.7,
-        )
-        source_ids = [s["source_id"] for s in stage1_result["sources"]]
-        assert len(source_ids) == 2
-
-        # Stage 2: search with CVC sync
+    def test_two_stage_workflow(self, mock_semantic_search, mock_search_advanced):
+        """Complete workflow: search_with_cvc (collect + sync) -> semantic_search."""
+        # Stage 1: search with CVC sync
         mock_search_advanced.return_value = {
             "count": 15,
             "items": [{"title": f"News {i}"} for i in range(15)],
         }
 
-        stage2_result = search_with_cvc(
+        stage1_result = search_with_cvc(
             q="+(Tesla|BYD) +(EV|battery)",
             cvc_model_id="cvc_9f8e7d6c",
-            source_ids=source_ids,
             min_tscore=0.6,
             days=30,
         )
 
-        assert "cvc_sync_status" in stage2_result
-        assert stage2_result["cvc_sync_status"]["items_found"] == 15
+        assert "cvc_sync_status" in stage1_result
+        assert stage1_result["cvc_sync_status"]["items_found"] == 15
 
-        # Stage 3: semantic search on CVC model
+        # Stage 2: semantic search on CVC model
         mock_semantic_search.return_value = {
             "search_metadata": {"id": "semantic-test"},
             "search_information": {
@@ -248,18 +228,17 @@ class TestThreeStageWorkflow:
             ],
         }
 
-        stage3_result = semantic_search_tool(
+        stage2_result = semantic_search_tool(
             cvc_model_id="cvc_9f8e7d6c",
             q="分析特斯拉和比亚迪在电动车电池技术上的竞争态势",
             mode="hybrid",
             top_k=10,
         )
 
-        assert stage3_result["search_information"]["fusion"]["vector_hits"] == 15
-        assert len(stage3_result["organic_results"]) == 2
+        assert stage2_result["search_information"]["fusion"]["vector_hits"] == 15
+        assert len(stage2_result["organic_results"]) == 2
 
-        # Verify all stages executed in sequence
-        mock_search_sources.assert_called_once()
+        # Verify both stages executed
         mock_search_advanced.assert_called_once()
         mock_semantic_search.assert_called_once()
 

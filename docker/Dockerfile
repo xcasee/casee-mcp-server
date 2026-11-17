@@ -2,17 +2,17 @@ FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="casee-mcp-server"
 LABEL org.opencontainers.image.description="CaSee Intelligence MCP Server for AI Agents"
-LABEL org.opencontainers.image.version="1.2.2"
+LABEL org.opencontainers.image.version="1.10.0"
 LABEL org.opencontainers.image.url="https://casee.me"
 
 WORKDIR /app
 
 # Copy casee SDK wheel and install
-COPY casee-1.9.0-py3-none-any.whl /tmp/
+COPY casee-2.0.0-py3-none-any.whl /tmp/
 RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
-    /tmp/casee-1.9.0-py3-none-any.whl \
-    "mcp>=1.0.0" && \
-    rm /tmp/casee-1.9.0-py3-none-any.whl
+    /tmp/casee-2.0.0-py3-none-any.whl \
+    "mcp>=1.10.0" && \
+    rm /tmp/casee-2.0.0-py3-none-any.whl
 
 # Copy source code
 COPY src/ /app/src/
@@ -28,6 +28,8 @@ ENV MCP_TRANSPORT=streamable-http
 ENV MCP_HOST=0.0.0.0
 ENV MCP_PORT=8100
 ENV MCP_PATH=/mcp
+# Single-JSON responses avoid client-side SSE parsing failures on long tool results.
+ENV MCP_JSON_RESPONSE=true
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD python3 -c "from casee import __version__; print('OK')" || exit 1

@@ -4,17 +4,17 @@ set -euo pipefail
 # ============================================================
 # CaSee MCP Server 生产环境部署脚本
 # Target: https://causalai.me:8100/mcp
-# MCP Server: v1.2.0  |  casee SDK: 1.9.0
+# MCP Server: v1.10.0  |  casee SDK: 2.0.0
 # ============================================================
 
 SERVER="121.43.113.132"
 REMOTE_USER="root"
 REMOTE_DIR="/opt/casee-mcp-server"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SDK_WHEEL="casee-1.9.0-py3-none-any.whl"
+SDK_WHEEL="casee-2.0.0-py3-none-any.whl"
 
 echo "============================================"
-echo "  CaSee MCP Server Deployment (v1.2.0)"
+echo "  CaSee MCP Server Deployment (v1.10.0)"
 echo "  Target: ${SERVER}"
 echo "  Remote Dir: ${REMOTE_DIR}"
 echo "  SDK wheel: ${SDK_WHEEL}"
@@ -33,7 +33,14 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 cp -r src "${TEMP_DIR}/"
 cp -r docker "${TEMP_DIR}/"
 cp pyproject.toml "${TEMP_DIR}/"
-cp .env "${TEMP_DIR}/"
+if [ -f .env ]; then
+    cp .env "${TEMP_DIR}/"
+elif [ -f deploy/.env.server ]; then
+    cp deploy/.env.server "${TEMP_DIR}/.env"
+else
+    echo "ERROR: missing .env (or deploy/.env.server)" >&2
+    exit 1
+fi
 cp "${SDK_WHEEL}" "${TEMP_DIR}/"
 
 # Create deployment tarball
@@ -168,7 +175,7 @@ echo ""
 echo "============================================"
 echo "  Deployment Complete!"
 echo ""
-echo "  MCP Server ver: v1.2.0"
-echo "  casee SDK ver:  1.9.0"
+echo "  MCP Server ver: v1.10.0"
+echo "  casee SDK ver:  2.0.0"
 echo "  Service URL:    http://${SERVER}:8100/mcp"
 echo "============================================"

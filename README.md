@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.0.0-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.10.0-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -19,7 +19,7 @@
 
 **CaSee** is an **AI-driven competitive intelligence & market insight platform** — "Win by strategy, sense opportunities first, decide a thousand miles ahead".
 
-CaSee delivers **trusted-source competitive intelligence** that helps startups find market opportunities and established enterprises expand their competitive advantages. It solves the core pain points of enterprise competitive intelligence:
+CaSee delivers **verifiable competitive intelligence** that helps startups find market opportunities and established enterprises expand their competitive advantages. It solves the core pain points of enterprise competitive intelligence:
 
 - Fragmented intelligence collection
 - Inefficient manual analysis
@@ -55,10 +55,10 @@ casee-mcp-server is the **MCP (Model Context Protocol) gateway** that exposes Ca
 
 It bridges two worlds:
 
-- **CaSee's trusted intelligence backend** — 500+ trusted intelligence sources with T-Score credibility, real-time competitive dynamics, and quantified analysis
+- **CaSee's intelligence backend** — curated intelligence with T-Score credibility, real-time competitive dynamics, and quantified analysis
 - **Your AI Agent** — any LLM application that speaks MCP (stdio or Streamable-HTTP)
 
-With casee-mcp-server, your AI agents gain **real-time, trusted-source intelligence retrieval** from the CaSee platform — turning them from generic chat tools into verifiable competitive intelligence analysts that can search trusted sources, run complex logic retrieval, analyze trends, and aggregate by source — all through 4 simple MCP tools.
+With casee-mcp-server, your AI agents gain **real-time, credibility-scored intelligence retrieval** from the CaSee platform — turning them from generic chat tools into verifiable competitive intelligence analysts that can run complex logic retrieval, analyze trends, and aggregate by category / region / language — all through a compact set of MCP tools.
 
 ***
 
@@ -75,14 +75,14 @@ LLM AI Agents (Claude, GPT, etc.) can generate competitive intelligence reports,
 - Unverifiable sources (hallucinated or unknown provenance)
 - Shallow analysis (lacks industry-specific frameworks)
 
-**casee-mcp-server** bridges this gap by giving AI Agents access to **real-time, trusted-source intelligence retrieval**:
+**casee-mcp-server** bridges this gap by giving AI Agents access to **real-time, credibility-scored intelligence retrieval**:
 
 | Dimension           | LLM Alone              | With casee-mcp-server                                          |
 | ------------------- | ---------------------- | -------------------------------------------------------------- |
-| **Source Trust**    | Unknown / hallucinated | 500+ trusted intelligence sources with tscore (0-1) credibility scoring     |
+| **Source Trust**    | Unknown / hallucinated | Curated intelligence with tscore (0-1) credibility scoring     |
 | **Data Freshness**  | Training cutoff date   | Real-time, configurable time window (1-365 days)               |
-| **Query Precision** | Natural language only  | Class-Google syntax: `+AND` / `-NOT` / `"phrase"` / `(groups)` |
-| **Analysis Depth**  | Surface-level summary  | Trend analysis + source aggregation                             |
+| **Query Precision** | Natural language only  | Search-engine syntax: `+AND` / `-NOT` / `"phrase"` / `(groups)` |
+| **Analysis Depth**  | Surface-level summary  | Trend analysis + category / region / language aggregation      |
 | **Traceability**    | None                   | Every result links to specific source, date, and tscore        |
 
 > **Core Value**: Transforms AI Agents from "chat tools" into **trusted competitive intelligence analysis systems** — with timely, traceable, and quantifiable intelligence.
@@ -109,7 +109,7 @@ There are **two ways** to use casee-mcp-server:
 
 #### Step 1: Get a CaSee API Key
 
-Register at [https://casee.me](https://casee.me) and create a **read-only API key** for your agent (we recommend scoping it to `intelligence:read` + `sources:read`). Keep it secret — it authenticates every request.
+Register at [https://casee.me](https://casee.me) and create a **read-only API key** for your agent (we recommend scoping it to `intelligence:read`). Keep it secret — it authenticates every request.
 
 #### Step 2: Install
 
@@ -125,8 +125,10 @@ cd casee-mcp-server && pip install -e .
 #### Step 3: Configure environment variables
 
 ```bash
-export CASEE_API_KEY=casee_xxx                          # your CaSee API key (casee.me)
+export CASEE_IS_API_KEY=casee_xxx                          # your CaSee API key (casee.me)
 export CASEE_API_BASE_URL=https://casee.me # CaSee Intelligence Server URL
+export CASEE_OPENAPI_BASE_URL=https://origin.casee.me/api/v1/openapi  # direct origin, bypass CDN
+export CASEE_PORTAL_BASE_URL=https://www.casee.me
 ```
 
 #### Step 4: Start the server
@@ -165,13 +167,13 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-You should see all **14 tools**: the 6 query tools (`find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools and full-history purge.
+You should see all **60 tools**: the 5 query tools (`search_intelligence`, `analyze_trend`, `aggregate_intelligence`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools, full-history purge, the v1.4 report tools (templates / plan / generate / poll / share / rebuild / health), the v1.6 CVC creation tools (company search / create / job polling / build status) and the v1.7 OpenAPI coverage tools (credits / ledger / quota, report download, charts, template CRUD, CVC inspection and business insights).
 
 #### Step 6: Run with Docker (recommended for production)
 
 ```bash
 # 1. configure your API key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 2. build & start
 docker compose -f docker/docker-compose.yml up -d
@@ -189,11 +191,11 @@ No installation needed. The server is already deployed and running:
 ```
 MCP endpoint : https://causalai.me:8100/mcp
 Transport    : Streamable-HTTP
-Server       : casee (14 MCP tools)
+Server       : casee (60 MCP tools)
 Backend      : CaSee Intelligence Server (auto-resolved)
 ```
 
-Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plug the URL into your AI agent. Jump straight to [Platform Integrations](#-platform-integrations) for the per-platform walkthrough — no Python, no Docker required.
+Just grab your `CASEE_IS_API_KEY` from [https://casee.me](https://casee.me) and plug the URL into your AI agent. Jump straight to [Platform Integrations](#-platform-integrations) for the per-platform walkthrough — no Python, no Docker required.
 
 > **Tip**: For a quick sanity check before wiring a client, run the bundled test suite against the hosted endpoint:
 >
@@ -205,16 +207,15 @@ Just grab your `CASEE_API_KEY` from [https://casee.me](https://casee.me) and plu
 
 ## 🧰 MCP Tools
 
-The server exposes **14 MCP Tools** for AI Agents, supporting keyword-based and advanced semantic search plus CVC administration:
+The server exposes **60 MCP Tools** for AI Agents: retrieval, CVC administration, CVC creation and end-to-end report generation.
 
 | Tool                          | Description                                                           | Key Parameters                                         |
 | ----------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
-| `find_trusted_sources`        | Discover trusted sources by category, keyword, region, language       | `category`, `min_tscore`, `keyword`, `limit`           |
-| `search_intelligence`         | Complex logic retrieval: AND/OR/NOT/phrase/synonym groups             | `q` (query syntax), `source_ids`, `min_tscore`, `days` |
-| `analyze_trend`               | Time-series trend analysis of intelligence volume                     | `q`, `source_ids`, `days`                              |
-| `aggregate_by_source`         | Aggregate by source: count, avg tscore, sample titles                 | `q`, `source_ids`, `days`                              |
+| `search_intelligence`         | Complex logic retrieval: AND/OR/NOT/phrase/synonym groups             | `q` (query syntax), `min_tscore`, `days`               |
+| `analyze_trend`               | Time-series trend analysis of intelligence volume                     | `q`, `days`                                            |
+| `aggregate_intelligence`      | Aggregate results by `category` / `region` / `language`               | `q`, `dimension`, `days`                               |
 | `semantic_search_tool`        | Semantic search via CVC model: BM25 + Vector ANN + RRF fusion         | `cvc_model_id`, `q`, `mode`, `top_k`, `days`, `min_tscore` |
-| `search_with_cvc`             | Keyword search with optional CVC model sync for semantic index        | `q`, `cvc_model_id`, `source_ids`, `min_tscore`, `days` |
+| `search_with_cvc`             | Keyword search with optional CVC model sync for semantic index        | `q`, `cvc_model_id`, `min_tscore`, `days`              |
 | `batch_search`                | Server-side batch search: many advanced queries in one round-trip     | `groups`, `dedupe`, `max_concurrency`                  |
 | `list_cvc_models_tool`        | List all CVC models with collection statistics                        | —                                                      |
 | `cvc_stats_tool`              | Collection statistics for a CVC model                                 | `cvc_model_id`                                         |
@@ -229,23 +230,164 @@ The server exposes **14 MCP Tools** for AI Agents, supporting keyword-based and 
 > `cvc_cleanup_status_tool` / `cvc_reindex_tool`), and full-history purge
 > (`intelligence_purge_tool` / `intelligence_purge_status_tool`), powered by the
 > upgraded `casee` SDK **1.9.0**.
+>
+> **v1.10.0 (2026-11-17):** public-surface hardening — added `sanitize.py`
+> response projection applied at both tool exits (opaque `source_id`, no
+> source catalogs / `top_sources` lists, Google News collection-channel
+> fingerprints normalized to `公开媒体` / `public_news`); pinned `casee` SDK
+> wheel upgraded to **2.0.0** (source-enumeration and gnews client helpers
+> removed upstream).
+>
+> **v1.7.1 (2026-11-13):** ledger audit fixes — `direction=refund|charge|grant`
+> filtering, `older_cursor` alias, page-based paging and `summary.refunded_count`
+> over the full history; `billing.ledger_query` now points at the matching
+> ledger direction.
+>
+> **v1.7.0 (2026-11-12):** full `/api/v1/openapi` coverage — added credits /
+> ledger / quota tools, `casee_download_report` (+ the `TEMPLATE_TOO_LARGE` 413
+> fallback), chart catalog / preview / bundle, report template CRUD, CVC
+> inspection (entities / ontology / intelligence / exports) and business
+> insights. Large artifacts are saved to `CASEE_DOWNLOAD_DIR`.
+>
+> **v1.6.0 (2026-11-02):** CVC creation tools now use async job endpoints
+> (`/companies/search-jobs` / `/cvc-models/creation-jobs`) with a bounded
+> `wait_seconds`; added `get_company_search_job` / `get_cvc_creation_job` for
+> job polling when the wait budget is exhausted.
 
-### Two-Stage Trusted Retrieval Workflow (Keyword Search)
+### Report tools (v1.4)
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `list_report_templates` | List system + tenant report templates | `scope`, `q`, `page`, `page_size` |
+| `plan_report` | Pre-flight: sections, charts, gaps, compatibility, credits | `cvc_id`, `template_id`, `time_range`, `language` |
+| `generate_report` | Create an async report job (1 Credit) | `cvc_id`, `template_id`, `output_formats`, `idempotency_key` |
+| `get_report_job` | Poll status, quality, artifacts and share link | `job_id`, `wait_ms` |
+| `list_report_jobs` | Paginated job history | `cvc_id`, `status`, `page`, `page_size` |
+| `share_report` | Create a password-free `rs-` share snapshot | `job_id`, `ttl_seconds` |
+| `backup_cvc_intelligence` | Export metadata (count / ETag) before a rebuild | `cvc_id` |
+| `rebuild_cvc_model` | Destructive rebuild; dry-run by default, `confirm=true` to execute | `cvc_id`, `confirm`, `backup`, `dry_run` |
+| `casee_health` | Gateway/backend version, API base, Credits balance | — |
+
+Successful report tools return `{ok: true, data, meta}` where `meta` carries
+`elapsed_ms`, `request_id` (when available) and `next_poll_after_ms`.
+Failures keep the structured error fields below plus `ok: false`.
+
+### CVC creation tools (v1.6)
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `search_cvc_companies` | Search candidate companies for an analysis goal; creates an async job and polls up to `wait_seconds`; returns proposed products/markets/competitors and `selected=true` (all by default) | `query`, `language`, `limit`, `wait_seconds` |
+| `create_cvc_model` | Create a CVC draft (company names or objects) via an async job; returns `build_readiness`, `warnings` and `next_step` | `name`, `companies`, `query_topic`, `query_type`, `overwrite`, `idempotency_key`, `wait_seconds` |
+| `get_company_search_job` | Poll a company-search job by `job_id`; `result` matches the synchronous search payload when succeeded | `job_id` |
+| `get_cvc_creation_job` | Poll a CVC-creation job by `job_id`; `result` contains `cvc_id` / `build_readiness` when succeeded | `job_id` |
+| `get_cvc_build_status` | Phase progress, current step, failure attribution and polling hints; supports long-poll and incremental logs | `cvc_id`, `wait_seconds`, `include_logs`, `log_since` |
+
+> Flow: `search_cvc_companies` (show the list, all selected by default) →
+> `create_cvc_model` → `rebuild_cvc_model(confirm=true, dry_run=false)` → tell the
+> user "about 10 minutes; a completion email will be sent" and do **not** block.
+> Both creation tools use the async job endpoints and return a `job_id` when the
+> wait budget is exhausted; continue with `get_company_search_job` /
+> `get_cvc_creation_job`. When the user asks later, call `get_cvc_build_status`
+> and report `phases[]` / `failure.hint`.
+
+### OpenAPI coverage tools (v1.7)
+
+v1.7 closes the remaining `/api/v1/openapi` gaps, so agents no longer need to
+call the REST API directly for billing, artifacts, charts, templates or CVC
+inspection.
+
+**Billing & quota**
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `casee_get_credits` | Balance (three buckets), pending reservations, `ledger_cursor`, per-operation prices; no charge | — |
+| `casee_get_credit_ledger` | Ledger reconciliation (reserve/confirm/refund) with `direction=refund`, `page`, `cursor`/`older_cursor` or `since_id` paging; `summary.refunded_count` covers the full history | `operation`, `status`, `direction`, `job_id`, `cvc_id`, `page`, `cursor`/`older_cursor`, `since_id`, `page_size` (max 500) |
+| `casee_get_quota` | Key scopes, minute/day quota watermarks, accessible model count, product access | — |
+
+**Report artifacts & templates**
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `casee_download_report` | Download HTML/Markdown/PPT(deck) to disk; returns `saved_path` / `sha256` / `bytes` (optional inline) | `job_id`, `format`, `save_path`, `inline` |
+| `casee_issue_report_access_code` | One-time report generation code for keyless web pages | `cvc_id`, `template_id`, `time_range`, `output_formats`, `ttl_seconds` |
+| `casee_get_report_template` | Template detail: sections, per-section `ca_code`, writing constraints | `template_id` |
+| `casee_download_report_template` | Export a template as Markdown (fork → edit → upload) | `template_id`, `save_path` |
+| `casee_create_report_template` | Upload a tenant template after validation | `template_id`, `name`, `content_md`, `summary`, `status` |
+| `casee_update_report_template` | Update a tenant template (system templates are read-only) | `template_id`, `name`/`content_md`/`summary`/`status` |
+| `casee_delete_report_template` | Soft-delete a tenant template (`confirm=true` required) | `template_id`, `confirm` |
+| `casee_validate_report_template` | Validate without saving; returns per-error codes | `template_id`, `content_md` |
+
+> **413 fallback:** when `share_report` returns `error_code=TEMPLATE_TOO_LARGE`
+> (HTTP 413), do not retry. `details.fallback_tool` points to
+> `casee_download_report`; download and distribute the file instead.
+
+**Charts**
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `casee_search_charts` | Chart capability dictionary; pass `cvc_id` for per-chart availability | `domain`, `function_category`, `q`, `cvc_id`, `time_range`, `detail` |
+| `casee_get_chart` | Chart detail and field contract | `ca_code`, `cvc_id`, `time_range` |
+| `casee_preview_chart` | Preview render bundle (no report quota) | `ca_code`, `cvc_id`, `include_embed`, `save_path` |
+| `casee_get_chart_bundle` | Issue a `cc-` code and fetch the bundle in one step (or reuse `code`) | `code`, `cvc_id`, `chart`, `ttl_seconds`, `include_embed` |
+
+**CVC inspection & business insights**
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `casee_home_overview` | Tenant overview: model status, building jobs, recent reports, credits | `limit` |
+| `casee_get_cvc_model` | Model metadata, graph stats and entity collections | `cvc_id`, `include`, `detail`, `expand` |
+| `casee_list_cvc_companies` | Company list with roles, websites and selected entities | `cvc_id` |
+| `casee_list_cvc_entities` | Paged ontology entity list | `cvc_id`, `entity_type`, `keyword`, `company`, `page` |
+| `casee_get_cvc_entity` | Entity attributes, relations, IRI and related intel | `cvc_id`, `entity_type`, `entity_id`, `by` |
+| `casee_get_ontology_schema` | Ontology TBox (classes / properties) | `cvc_id` |
+| `casee_export_ontology` | Export an entity/keyword subgraph as OWL 2 DL (≤200 triples) | `cvc_id`, `entity_type`, `entity_id`, `keyword`, `format`, `include` |
+| `casee_search_cvc_intelligence` | Search intelligence inside a CVC (keywords/sentiment/time/company) | `cvc_id`, `keywords`, `match`, `sentiment`, `days`, `page` |
+| `casee_get_intelligence_detail` | One intelligence item plus matched entities | `cvc_id`, `intel_id` |
+| `casee_export_intelligence` | Export all intelligence to JSONL/JSON on disk (pre-rebuild backup) | `cvc_id`, `format`, `save_path` |
+| `casee_get_cvc_dashboard` | Business dashboard (volume/sentiment/voice/events; no credits) | `cvc_id`, `time_range` |
+| `casee_get_market_trends` | Market trends (heat/sources/topics) | `cvc_id`, `time_range` |
+| `casee_get_enterprise_insight` | Enterprise insight; `dry_run=true` by default (probe only) | `cvc_id`, `company_name`, `dry_run` |
+| `casee_get_market_insight` | Market insight; `dry_run=true` by default | `cvc_id`, `market_name`, `dry_run` |
+| `casee_get_customer_insight` | Customer insight; `dry_run=true` by default | `cvc_id`, `customer_name`, `dry_run` |
+
+**Discovery**
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `casee_list_endpoints` | Endpoint catalog (group / keyword / full parameter tables) | `group`, `q`, `detail` |
+| `casee_get_endpoint` | One endpoint's parameters, error codes and changelog | `endpoint_id` |
+| `casee_list_mcp_tools` | Backend-declared MCP tools/resources/prompts snapshot | — |
+
+> Large artifacts (report HTML, intelligence export, OWL) are written to
+> `CASEE_DOWNLOAD_DIR` (default: `casee-downloads` under the system temp dir)
+> and returned with `saved_path`, `bytes` and `sha256`; pass `inline=true`
+> (plus `max_inline_chars`) to also receive the content.
+
+### MCP prompts (v1.6)
+
+`prompts/list` exposes three reusable recipes:
+
+- `cvc_creation` — company search → user confirms (all by default) → create → build → 10 min/email
+- `report_generation` — templates → plan → generate → poll → share → quality statement
+- `retrieval_quality_guard` — degraded semantic search / zero-result disclosure rules
+
+### Retrieval Workflow (Scope-First, Keyword Search)
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  Stage 1: find_trusted_sources(category="wire", min_tscore=0.7) │
-│  → Returns: [reuters, ap, bloomberg, ...]                       │
+│  Stage 1: Describe the query and the scope                      │
+│  q="+EV +(battery|charging) -China"                             │
+│  scope: category / region / language, min_tscore, days           │
 └──────────────────────────┬─────────────────────────────────────┘
-                           │ source_ids
+                           │
                            ▼
 ┌────────────────────────────────────────────────────────────────┐
 │  Stage 2: search_intelligence(                                  │
 │      q="+EV +(battery|charging) -China",                        │
-│      source_ids=["reuters","ap","bloomberg"],                   │
 │      min_tscore=0.6, days=30                                    │
 │  )                                                              │
 │  → Returns: verified, high-quality intelligence results         │
+│  → Follow up with analyze_trend / aggregate_intelligence        │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -329,8 +471,9 @@ If the file does not exist, create it.
     "casee-intelligence": {
       "command": "casee-mcp",
       "env": {
-        "CASEE_API_KEY": "casee_xxx",
-        "CASEE_API_BASE_URL": "https://casee.me"
+        "CASEE_IS_API_KEY": "casee_xxx",
+        "CASEE_API_BASE_URL": "https://casee.me",
+        "CASEE_OPENAPI_BASE_URL": "https://origin.casee.me/api/v1/openapi"
       }
     }
   }
@@ -343,15 +486,15 @@ Fully quit (Cmd+Q / Alt+F4) and relaunch Claude Desktop so it re-reads the confi
 
 #### Step 5: Verify the tools
 
-Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **14 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
+Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **60 tools** (the 5 query tools `search_intelligence`, `analyze_trend`, `aggregate_intelligence`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
 
 #### Step 6: Try it
 
 Ask Claude:
 
-> *"Use the casee tools to search for the latest Nvidia competitive intelligence from trusted sources, then summarize the key findings with their credibility scores."*
+> *"Use the casee tools to search for the latest Nvidia competitive intelligence, then summarize the key findings with their credibility scores."*
 
-Claude will call `find_trusted_sources` → `search_intelligence` and answer with traceable sources and tscore values.
+Claude will call `search_intelligence` and answer with traceable items and tscore values.
 
 > **Alternative — connect to the hosted endpoint (newer Claude Desktop versions)**:
 >
@@ -416,15 +559,15 @@ Save `.workbuddy/mcp.json`, then trigger a config reload in WorkBuddy (typically
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with its **14 tools** (the 6 query tools `find_trusted_sources`, `search_intelligence`, `analyze_trend`, `aggregate_by_source`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin and purge tools).
+Open the MCP tool panel. You should see `casee-intelligence` with its **60 tools** (the 5 query tools `search_intelligence`, `analyze_trend`, `aggregate_intelligence`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
 
 #### Step 5: Try it
 
 Ask WorkBuddy:
 
-> *"Track the latest EV battery competition signals across trusted sources."*
+> *"Track the latest EV battery competition signals."*
 
-WorkBuddy will call `find_trusted_sources` → `search_intelligence` and answer with traceable sources and tscore values.
+WorkBuddy will call `search_intelligence` and answer with traceable items and tscore values.
 
 > **Self-hosted variant** — if you run your own MCP server on the same machine, point `url` to `http://127.0.0.1:8100/mcp` instead. The rest of the file stays identical.
 >
@@ -477,13 +620,13 @@ Reload the MCP configuration (or restart Trae Work) so it picks up the new serve
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with **14 tools**. Enable the ones you need.
+Open the MCP tool panel. You should see `casee-intelligence` with **60 tools**. Enable the ones you need.
 
 #### Step 5: Ask for intelligence
 
 Example prompt:
 
-> *"Use casee search to find recent AI regulation developments, filter by trusted sources only, and summarize the trend over the last 30 days."*
+> *"Use casee search to find recent AI regulation developments, keep only high-credibility items (tscore ≥ 0.6), and summarize the trend over the last 30 days."*
 
 ---
 
@@ -518,7 +661,7 @@ class CaseeSearchTool(BaseTool):
         async with stdio_client(
             StdioServerParameters(
                 command="casee-mcp",
-                env={"CASEE_API_KEY": "casee_xxx"}
+                env={"CASEE_IS_API_KEY": "casee_xxx"}
             )
         ) as (read, write):
             async with ClientSession(read, write) as session:
@@ -532,12 +675,12 @@ agent = initialize_agent(
     tools=[CaseeSearchTool()], llm=llm,
     agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION
 )
-agent.run("Find EV battery competition intelligence from trusted sources")
+agent.run("Find EV battery competition intelligence from public media")
 ```
 
 #### Step 3: Run the agent
 
-The agent now decides when to call `casee_search` during its reasoning loop, giving your LLM real-time, trusted-source data instead of stale training knowledge.
+The agent now decides when to call `casee_search` during its reasoning loop, giving your LLM real-time, credibility-scored data instead of stale training knowledge.
 
 > **Connecting to the hosted endpoint** — use `StreamableHttpClient` against `https://causalai.me:8100/mcp` instead of `stdio_client`:
 >
@@ -581,7 +724,7 @@ from langchain.tools import tool
 async def search_intel(q: str) -> str:
     """Search competitive intelligence. q: query syntax like +EV +(battery|charging)"""
     async with stdio_client(
-        StdioServerParameters(command="casee-mcp", env={"CASEE_API_KEY": "casee_xxx"})
+        StdioServerParameters(command="casee-mcp", env={"CASEE_IS_API_KEY": "casee_xxx"})
     ) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -591,7 +734,7 @@ async def search_intel(q: str) -> str:
 
 analyst = Agent(
     role="Competitive Intelligence Analyst",
-    goal="Retrieve and analyze market intelligence from trusted sources",
+    goal="Retrieve and analyze market intelligence from public media",
     tools=[search_intel],
 )
 
@@ -612,6 +755,118 @@ result = crew.kickoff()
 
 ***
 
+## ⚠️ Error Handling
+
+Every MCP tool returns a JSON object. On failure, the payload is a structured error envelope instead of an opaque SDK exception:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `error` | string | Legacy SDK exception class (kept for backward compatibility) |
+| `error_code` | string | **Stable machine-readable code — agents should branch on this field** |
+| `message` | string | Human-readable upstream message |
+| `status_code` | int \| null | Upstream HTTP status when known |
+| `code` | int \| null | Upstream business code when available |
+| `details` | object | Structured fields (`required_credits`, `current_credits`, `product`, `module_id`, `retry_after`, contact info, …) |
+| `hint` | string | Actionable next step |
+| `retryable` | bool | Whether retrying the same call can succeed |
+| `action` | string | `contact_support` / `contact_admin` / `reauthenticate` / `retry_later` / `fix_request` / `inspect_error` / `report_bug` |
+
+### Error codes
+
+| `error_code` | HTTP | Meaning | Agent action |
+|---|---|---|---|
+| `CREDITS_INSUFFICIENT` | 402 | Tenant Credits balance is too low | Do not retry; top up or contact CaSee support |
+| `PRODUCT_ACCESS_DENIED` | 403 | API key is valid, but the tenant has not subscribed to the required product module | Do not retry; ask an administrator to enable the product |
+| `SCOPE_DENIED` | 403 | API key lacks a required scope | Create a key with the needed scope |
+| `TENANT_DISABLED` | 403 | Tenant account is disabled | Contact an administrator |
+| `AUTHENTICATION_FAILED` | 401 | API key missing/invalid/revoked | Check `CASEE_IS_API_KEY` or create a new key |
+| `RATE_LIMITED` | 429 | Rate limit or quota exceeded | Retry after `details.retry_after` |
+| `VALIDATION_ERROR` | 422 | Request parameters invalid | Fix the request; see `details` |
+| `TEMPLATE_TOO_LARGE` | 413 | Report/template exceeds the share or size limit | Do not retry; use `casee_download_report` and distribute the file |
+| `JOB_NOT_READY` | 409 | Report job not finished or concurrency-limited | Poll `get_report_job` until succeeded/partial, then retry |
+| `CHART_UNSUPPORTED` | 400 | Chart code unknown or not agent-supported | Reselect with `casee_search_charts` |
+| `CHART_DATA_UNAVAILABLE` | 409 | No chart data for this CVC/time window | Choose another chart or widen `time_range` |
+| `TEMPLATE_NOT_FOUND` | 404 | Report template not found | Use `list_report_templates` |
+| `TEMPLATE_HEADER_INVALID` / `TEMPLATE_SECTION_INVALID` / `TEMPLATE_CHART_INVALID` / `TEMPLATE_PLACEHOLDER_INVALID` / `TEMPLATE_NAMESPACE_INVALID` | 400 | Template structure, chart code, placeholder or namespace invalid | Validate with `casee_validate_report_template`, then fix |
+| `REBUILD_CONFIRMATION_REQUIRED` | 409 | Rebuild requires explicit confirmation | Retry with `confirm=true` (and `backup=true`) |
+| `NOT_FOUND` | 404 | Resource not found (e.g. `cvc_model_id`) | Verify the identifier |
+| `TIMEOUT` | — | Client-side timeout | Retry later or increase `CASEE_TIMEOUT` |
+| `NETWORK_ERROR` | — | DNS/connection/TLS failure | Check `CASEE_API_BASE_URL` and connectivity |
+| `SERVER_ERROR` | 5xx | Upstream server error | Retry later; contact support if persistent |
+| `API_ERROR` | any | Other upstream API error | Inspect `message` / `details` |
+| `UNEXPECTED_ERROR` | — | Unexpected client-side error | Inspect `message`; report a bug if reproducible |
+
+### Credits insufficient (402)
+
+```json
+{
+  "error": "APIError",
+  "error_code": "CREDITS_INSUFFICIENT",
+  "message": "Credits点数不足，需要1.0点，当前余额0.0点。请联系CaSee团队追加Credits。",
+  "status_code": 402,
+  "code": 402,
+  "details": {
+    "error": "CREDITS_INSUFFICIENT",
+    "required_credits": 1.0,
+    "current_credits": 0.0,
+    "operation": "report_generate",
+    "contact_email": "info@xcasee.com",
+    "contact_wechat": "@casee_me",
+    "contact_url": "/billing/service-contact"
+  },
+  "hint": "Insufficient Credits (required=1.0, current=0.0); top up or contact CaSee support, then retry.",
+  "retryable": false,
+  "action": "contact_support"
+}
+```
+
+### Missing product permission (403)
+
+The API key is valid; only the tenant subscription is missing. Do **not** treat this as an invalid key.
+
+```json
+{
+  "error": "AuthenticationError",
+  "error_code": "PRODUCT_ACCESS_DENIED",
+  "message": "当前租户未开通「客户情报平台」，请开通该产品后重试",
+  "status_code": 403,
+  "code": null,
+  "details": {
+    "product": "客户情报平台",
+    "contact_email": "info@xcasee.com",
+    "contact_wechat": "@casee_me",
+    "contact_url": "/billing/service-contact"
+  },
+  "hint": "The API key is valid, but the tenant has not subscribed to the required product module \"客户情报平台\". Ask an administrator to enable it and retry.",
+  "retryable": false,
+  "action": "contact_admin"
+}
+```
+
+Product modules referenced by `details.product` / `details.module_id`:
+
+| module_id | Product |
+|---|---|
+| `product-competitive-intel` | 产品竞争情报平台 |
+| `market-intel` | 市场情报平台 |
+| `customer-intel` | 客户情报平台 |
+| `api-service` | API 服务集成平台 |
+| `source-collector` | 情报采集服务 |
+| `decision-simulator` | 决策仿真推理系统 |
+
+### Transport-level authentication errors
+
+When the Streamable-HTTP gateway is enabled (`MCP_REQUIRE_API_KEY=true`), protected JSON-RPC methods fail before reaching a tool:
+
+| HTTP | `error.data.error_code` | Meaning |
+|---|---|---|
+| 401 | `AUTH_MISSING_KEY` | `X-API-Key` header missing |
+| 401 | `AUTH_INVALID_KEY` | Key invalid or revoked |
+| 401 | `AUTH_KEY_PLANE_MISMATCH` | Key works on is-server but is not registered in EIRS OpenAPI; use a `casee_...` tenant key from the portal |
+| 503 | `UPSTREAM_UNAVAILABLE` | Key-verification service unavailable; retry after `Retry-After` |
+
+***
+
 ## 🐳 Docker Deployment
 
 ```bash
@@ -620,7 +875,7 @@ git clone https://github.com/xcasee/casee-mcp-server.git
 cd casee-mcp-server
 
 # Set your API key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # Start
 docker compose -f docker/docker-compose.yml up -d
@@ -638,13 +893,18 @@ curl -X POST http://localhost:8100/mcp \
 
 | Environment Variable | Required | Default                      | Description                               |
 | -------------------- | -------- | ---------------------------- | ----------------------------------------- |
-| `CASEE_API_KEY`      | Yes      | —                            | CaSee API Key (get at <https://casee.me>) |
+| `CASEE_IS_API_KEY`      | Yes      | —                            | Deployment is-server key (get at <https://casee.me>; legacy `CASEE_API_KEY` is still accepted) |
 | `CASEE_API_BASE_URL` | No       | `https://casee.me` | CaSee Intelligence Server URL             |
 | `CASEE_TIMEOUT`      | No       | `30`                         | Request timeout (seconds)                 |
 | `MCP_TRANSPORT`      | No       | `stdio`                      | `stdio` or `streamable-http`              |
 | `MCP_HOST`           | No       | `127.0.0.1`                  | Streamable-HTTP listen address            |
 | `MCP_PORT`           | No       | `8100`                       | Streamable-HTTP listen port               |
 | `MCP_PATH`           | No       | `/mcp`                       | Streamable-HTTP endpoint path             |
+| `CASEE_OPENAPI_BASE_URL` | No   | derived                      | Full OpenAPI base for report tools (defaults to `<api_base>/api/v1/openapi`) |
+| `CASEE_PORTAL_BASE_URL` | No    | derived                      | Portal origin used for absolute share/report links |
+| `CASEE_REPORTS_TIMEOUT` | No    | `120`                        | Read timeout (seconds) for report/plan calls |
+| `MCP_JSON_RESPONSE`  | No       | `false`                      | `true` returns a single JSON response instead of SSE (recommended for strict clients) |
+| `MCP_REQUIRE_API_KEY` | No      | `false`                      | Enforce `X-API-Key` on the streamable-HTTP gateway |
 
 ***
 
@@ -663,12 +923,12 @@ curl -X POST http://localhost:8100/mcp \
 ┌───────┴──────────────┴──────────────┴───────────────┴───────────┐
 │                    casee-mcp-server (this project)                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Tools: 6 query tools + batch_search / CVC admin         │   │
+│  │  Tools: 5 query tools + batch_search / CVC admin         │   │
 │  │         (stats, cache purge, cleanup, reindex, list)      │   │
 │  │         + full-history purge / status                     │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  casee SDK (search_sources / search_advanced /            │   │
+│  │  casee SDK (search_advanced /                            │   │
 │  │              semantic_search / search_batch / cvc_* /     │   │
 │  │              intelligence_purge / ...)                    │   │
 │  └──────────────────────────────────────────────────────────┘   │
@@ -676,7 +936,7 @@ curl -X POST http://localhost:8100/mcp \
                             │  HTTP (X-API-Key)
 ┌───────────────────────────┴─────────────────────────────────────┐
 │  CaSee Intelligence Server (is_server)                            │
-│  /v1/sources/search  │  /v1/searchx  │  /v1/search  │           │
+│  /v1/searchx  │  /v1/search  │  /v1/semantic-search        │
 │  /v1/semantic-search  │  /v1/cvc/*  │  ...                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -685,7 +945,7 @@ curl -X POST http://localhost:8100/mcp \
 
 ## 🎯 Use Cases — Competitive Intelligence in Action
 
-This chapter walks through a complete, end-to-end competitive intelligence workflow, applied through `casee-mcp-server`'s 6 MCP tools. Every step is given both as a **direct API call** and as the equivalent **MCP Tool invocation** your AI agent will use.
+This chapter walks through a complete, end-to-end competitive intelligence workflow, applied through `casee-mcp-server`'s query tools. Every step is given both as a **direct API call** and as the equivalent **MCP Tool invocation** your AI agent will use.
 
 ### Scenario — Global EV Market Intelligence
 
@@ -697,7 +957,7 @@ A market intelligence team at an automotive OEM needs to track the global **New 
 | **Products** | EV, electric vehicle, battery, charging, BEV, plug-in hybrid |
 | **Target markets** | China, Europe, US, Southeast Asia |
 | **Topics** | market share, pricing strategy, battery tech, charging infra, policy & regulation |
-| **Trust requirement** | only high-credibility sources (tscore ≥ 0.6) |
+| **Trust requirement** | only high-credibility items (tscore ≥ 0.6) |
 | **Time window** | last 30 days |
 
 ---
@@ -717,7 +977,7 @@ Translate the business requirement into a structured query:
 | Market | OR | `China` \| `Europe` \| `US` \| `"Southeast Asia"` |
 | Exclude | NOT | `rumor` \| `gossip` |
 
-In **Google-style query syntax** (the `q` parameter of `search_intelligence`):
+In **search-engine style query syntax** (the `q` parameter of `search_intelligence`):
 
 ```text
 +(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|"electric vehicle"|battery|charging) +(China|Europe|US) -rumor
@@ -725,63 +985,16 @@ In **Google-style query syntax** (the `q` parameter of `search_intelligence`):
 
 ---
 
-### Step 2 — Find Trusted Sources
+### Step 2 — Scope and Retrieve the Intelligence
+
+Constrain the search scope (category / region / language) and retrieve:
 
 **Direct API:**
 
 ```bash
-curl -H "X-API-Key: $CASEE_API_KEY" \
-  "https://casee.me/v1/sources/search?category=wire&min_tscore=0.6&sample_size=2"
-```
-
-**Via MCP (call from your agent):**
-
-```text
-Tool: find_trusted_sources
-Arguments:
-  category  = "wire"
-  min_tscore = 0.6
-  sample_size = 2
-  limit     = 20
-```
-
-**Response (excerpt):**
-
-```json
-{
-  "count": 3, "total": 3,
-  "sources": [
-    {
-      "source_id": "reuters-business",
-      "name": "Reuters Business",
-      "category": "wire",
-      "tier": 1,
-      "propaganda_risk": "low",
-      "state_affiliated": false,
-      "tscore": 0.81,
-      "sample_data": [
-        { "title": "EU tariffs on Chinese EV imports ...", "tscore": 0.81 }
-      ]
-    }
-  ]
-}
-```
-
-Capture the `source_id` list (e.g. `["reuters-business", "ap-news", "ansa"]`) — they become the `source_ids` argument in Step 3.
-
----
-
-### Step 3 — Two-Stage Intelligence Retrieval
-
-Use the trusted `source_ids` from Step 2 with the query from Step 1.
-
-**Direct API:**
-
-```bash
-curl -G -H "X-API-Key: $CASEE_API_KEY" \
+curl -G -H "X-API-Key: $CASEE_IS_API_KEY" \
   "https://casee.me/v1/searchx" \
   --data-urlencode 'q=+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US) -rumor' \
-  --data-urlencode 'source_ids=reuters-business,ap-news,ansa' \
   --data-urlencode 'min_tscore=0.6' \
   --data-urlencode 'days=30' \
   --data-urlencode 'limit=50'
@@ -797,45 +1010,43 @@ curl -G -H "X-API-Key: $CASEE_API_KEY" \
 Tool: search_intelligence
 Arguments:
   q          = '+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US) -rumor'
-  source_ids = ["reuters-business", "ap-news", "ansa"]
   min_tscore = 0.6
   days       = 30
   limit      = 50
 ```
 
-The result is a list of verified, high-credibility intelligence items — each with `title`, `source_id`, `published_at`, `tscore`, and `url` for full traceability.
+The result is a list of verified, high-credibility intelligence items — each with `title`, an opaque `source_id`, `published_at`, `tscore`, and a `url` that resolves to the originating public article.
 
 ---
 
-### Step 4 — Analyze & Visualize the Intelligence
+### Step 3 — Analyze & Visualize the Intelligence
 
-Once you have the trusted items, the agent (or a downstream BI tool) performs four standard analyses. Each is also available as a one-shot MCP Tool call:
+Once you have the items, the agent (or a downstream BI tool) performs four standard analyses. Each is also available as a one-shot MCP Tool call:
 
 | Analysis | Description | MCP Tool |
 |----------|-------------|----------|
 | **Vendor mention frequency** | How many items mention each vendor | custom aggregation over `search_intelligence` results |
-| **Source contribution** | Items / avg-tscore per source | `aggregate_by_source(q, source_ids, days)` |
-| **Time-series trend** | Weekly / monthly volume, find inflection points | `analyze_trend(q, source_ids, days)` |
+| **Category / region contribution** | Items / avg-tscore per group | `aggregate_intelligence(q, dimension="category"\|"region"\|"language", days)` |
+| **Time-series trend** | Weekly / monthly volume, find inflection points | `analyze_trend(q, days)` |
 | **Structured export** | JSON for downstream BI / LLM | iterate `search_intelligence` results, dump to JSON |
 
 **Example MCP conversation (the agent calls them in sequence):**
 
 ```text
-User: "Give me an EV market briefing for the last 30 days, only top sources."
+User: "Give me an EV market briefing for the last 30 days."
 
 Agent:
-  → find_trusted_sources(category="wire", min_tscore=0.7, limit=20)
   → search_intelligence(q='+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US)',
-                        source_ids=[...], min_tscore=0.6, days=30)
+                        min_tscore=0.6, days=30)
   → analyze_trend(q='+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US)',
-                  source_ids=[...], days=30)
-  → aggregate_by_source(q='+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US)',
-                        source_ids=[...], days=30)
+                  days=30)
+  → aggregate_intelligence(q='+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US)',
+                           dimension="region", days=30)
   → Summarize: vendor-by-vendor movement, regional split, week-over-week change,
               and call out any items with tscore ≥ 0.8 as 'high-credibility signals'.
 ```
 
-This is the **two-stage trusted retrieval** pattern (see [MCP Tools](#-mcp-tools)): discover sources first, then search with the discovered sources — turning a noisy LLM answer into a **traceable, quantified competitive intelligence brief**.
+This is the **scope-first retrieval** pattern (see [MCP Tools](#-mcp-tools)): constrain by category / region / language, retrieve, then aggregate / trend — turning a noisy LLM answer into a **traceable, quantified competitive intelligence brief**.
 
 ---
 
@@ -849,7 +1060,7 @@ The same pattern works for any vertical. Three additional scenarios documented a
 | **Consumer-electronics demand signals** | Smartwatch product manager | "Analyze consumer feedback on smartwatches — health monitoring demand, battery-life satisfaction" | `+(smartwatch\|"smart watch") +(health\|"battery life"\|fitness) +(review\|feedback\|complaint)` |
 | **Global EV market briefing** | Auto industry analyst | "Global NEV market — Tesla/BYD/NIO moves, battery tech trends, regional policy changes, last 30 days, tscore ≥ 0.6" | `+(Tesla\|BYD\|NIO\|Xpeng\|Volkswagen) +(EV\|battery\|charging) +(China\|Europe\|US) -rumor` |
 
-For all three, the agent applies the same four-step pattern: **define query → `find_trusted_sources` → `search_intelligence` → analyze / aggregate / trend → summarize**.
+For all three, the agent applies the same three-step pattern: **define query → `search_intelligence` (scoped by category / region / language) → analyze / aggregate / trend → summarize**.
 
 ---
 
@@ -859,7 +1070,7 @@ For all three, the agent applies the same four-step pattern: **define query → 
 |--------------|------------------|
 | **Traceable answers** | Every item links to a `source_id`, `published_at`, and `tscore` — no hallucination |
 | **Quantified credibility** | `tscore` (0-1) is computed from tier, category, state-affiliation, propaganda risk |
-| **Multi-dimensional analysis** | Trend, source-aggregate, vendor-aggregate — all native MCP tools   |
+| **Multi-dimensional analysis** | Trend, category / region aggregate, vendor aggregate — all native MCP tools |
 | **Real-time freshness** | `days` parameter (1-365) lets you mix long-window trends with short-window hot signals |
 | **Lower manual effort** | Replaces "search → read → filter → copy-paste" with one agent prompt |
 | **Pluggable into any stack** | Same tools work from Claude Desktop, WorkBuddy, Trae Work, LangChain, CrewAI |

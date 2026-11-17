@@ -57,13 +57,19 @@ class TestBatchSearch:
 
 
 class TestListCvcModelsTool:
-    """Test list_cvc_models_tool MCP tool."""
+    """Test list_cvc_models_tool MCP tool (v1.4 OpenAPI-backed)."""
 
-    @patch("casee_mcp_server.server.sdk_list_cvc_models")
-    def test_valid(self, mock_list):
-        mock_list.return_value = {"count": 1, "models": [{"cvc_model_id": "cvc_12ab"}]}
+    @patch("casee_mcp_server.server.get_report_client")
+    def test_valid(self, mock_client):
+        client = mock_client.return_value
+        client.last_request_id = ""
+        client.request.return_value = {
+            "items": [{"cvc_id": "cvc_12ab", "status": "completed"}],
+            "pagination": {"total": 1},
+        }
         result = list_cvc_models_tool()
-        assert result["count"] == 1
+        assert result["ok"] is True
+        assert result["data"]["pagination"]["total"] == 1
 
 
 class TestCvcOpsTools:

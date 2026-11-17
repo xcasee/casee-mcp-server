@@ -19,7 +19,7 @@
 cd casee_mcp_server
 
 # 1. 配置 API Key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 2. 构建并启动容器
 docker compose -f docker/docker-compose.yml up -d
@@ -38,14 +38,14 @@ docker compose -f docker/docker-compose.yml down
 
 ```bash
 # 1. 配置环境变量
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 2. 拉取或加载镜像
 # 方式 A：从仓库拉取
-docker pull casee-mcp-server:1.0.0
+docker pull casee-mcp-server:1.10.0
 
 # 方式 B：从本地 tar 加载
-docker load -i casee-mcp-server-1.0.0.tar
+docker load -i casee-mcp-server-1.10.0.tar
 
 # 3. 启动服务
 docker compose -f docker/docker-compose.server.yml up -d
@@ -61,17 +61,17 @@ docker compose -f docker/docker-compose.server.yml ps
 docker compose -f docker/docker-compose.yml build
 
 # 导出镜像为 tar 文件
-docker save casee-mcp-server:1.0.0 -o casee-mcp-server-1.0.0.tar
+docker save casee-mcp-server:1.10.0 -o casee-mcp-server-1.10.0.tar
 
 # 在目标服务器导入镜像
-docker load -i casee-mcp-server-1.0.0.tar
+docker load -i casee-mcp-server-1.10.0.tar
 ```
 
 ## 环境变量
 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
-| `CASEE_API_KEY` | 是 | - | CaSee API Key |
+| `CASEE_IS_API_KEY` | 是 | - | 部署级 is-server Key（stdio/匿名回退；调用方请求走各自的 X-API-Key）。旧名 `CASEE_API_KEY` 仍兼容 |
 | `CASEE_API_BASE_URL` | 否 | `https://casee.me` | CaSee Intelligence Server 地址 |
 | `CASEE_TIMEOUT` | 否 | `30` | 请求超时时间（秒） |
 | `MCP_TRANSPORT` | 否 | `streamable-http` | 传输协议 |

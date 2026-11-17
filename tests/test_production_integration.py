@@ -85,7 +85,7 @@ def session():
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {
             "protocolVersion": "2025-03-26", "capabilities": {},
-            "clientInfo": {"name": "casee-live-test", "version": "1.2.2"},
+            "clientInfo": {"name": "casee-live-test", "version": "1.7.1"},
         },
     })
     assert resp.status_code == 200, resp.text
@@ -124,9 +124,9 @@ class TestProductionLive:
         assert resp.status_code == 200
         data = parse_jsonrpc(resp)
         tools = {t["name"] for t in data["result"]["tools"]}
-        assert len(tools) == 14
-        for expected in ("find_trusted_sources", "search_intelligence",
-                         "analyze_trend", "aggregate_by_source",
+        assert len(tools) == 60
+        for expected in ("search_intelligence",
+                         "analyze_trend", "aggregate_intelligence",
                          "semantic_search_tool", "search_with_cvc",
                          "batch_search", "list_cvc_models_tool",
                          "cvc_stats_tool", "cvc_cache_purge_tool",
@@ -173,12 +173,17 @@ class TestProductionLive:
         payload = json.loads(texts[0]) if texts else {}
         return payload
 
-    def test_call_find_trusted_sources(self, session):
+    def test_trusted_source_discovery_not_exposed(self, session):
         sid, _ = session
-        payload = self._call(sid, "find_trusted_sources",
-                             {"category": "wire", "min_tscore": 0.7, "limit": 5}, 10)
-        assert "sources" in payload
-        assert isinstance(payload["sources"], list)
+        resp = post({"jsonrpc": "2.0", "id": 10, "method": "tools/list",
+                     "params": {}}, session_id=sid)
+        assert resp.status_code == 200
+        tools = {t["name"] for t in parse_jsonrpc(resp)["result"]["tools"]}
+        assert "find_trusted_sources" not in tools
+        assert "source_ids" not in json.dumps(
+            [t.get("inputSchema", t.get("input_schema", {})) for t in
+             parse_jsonrpc(resp)["result"]["tools"]]
+        )
 
     def test_call_search_intelligence(self, session):
         sid, _ = session
@@ -207,11 +212,12 @@ class TestProductionLive:
         assert "trend" in payload and "summary" in payload
         assert "error" not in payload, payload
 
-    def test_call_aggregate_by_source(self, session):
+    def test_call_aggregate_intelligence(self, session):
         sid, _ = session
-        payload = self._call(sid, "aggregate_by_source",
-                             {"q": "+AI", "days": 30, "limit": 50}, 13)
-        assert "sources" in payload
+        payload = self._call(sid, "aggregate_intelligence",
+                             {"q": "+AI", "dimension": "category",
+                              "days": 30, "limit": 50}, 13)
+        assert "groups" in payload
         assert "error" not in payload, payload
 
     def test_call_batch_search(self, session):

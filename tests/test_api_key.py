@@ -257,31 +257,22 @@ def check_direct_api():
         log_result("API Key 验证 (直接调用)", "FAIL", f"异常: {str(e)}", duration)
         return False
 
-def check_tool_find_sources():
-    """测试信源检索工具"""
+def check_source_discovery_hidden():
+    """确认信源发现能力未对外暴露"""
     print("\n" + "="*60)
-    print("测试 4: MCP 信源检索 (find_trusted_sources)")
+    print("测试 4: 信源发现能力未暴露")
     print("="*60)
-    
+
     result = mcp_call_tool(
         "find_trusted_sources",
-        {
-            "keyword": "人工智能",
-            "min_tscore": 0.6,
-            "limit": 5
-        },
-        "find_trusted_sources 调用"
+        {"category": "wire", "limit": 5},
+        "find_trusted_sources 应不存在"
     )
-    
-    if result:
-        # 简单验证返回内容
-        if len(result) > 10:
-            log_result("信源检索结果", "PASS", 
-                      f"返回有效内容 ({len(result)} 字符)")
-        else:
-            log_result("信源检索结果", "WARN", 
-                      "返回内容较短")
+
+    if not result:
+        log_result("信源发现接口", "PASS", "调用失败，符合预期")
         return True
+    log_result("信源发现接口", "FAIL", "该工具仍可被调用")
     return False
 
 def check_tool_search_intelligence():
@@ -393,7 +384,7 @@ def main():
     check_direct_api()
 
     # Step 4-6: 测试 MCP 工具调用
-    check_tool_find_sources()
+    check_source_discovery_hidden()
     check_tool_search_intelligence()
     check_tool_batch_search()
     

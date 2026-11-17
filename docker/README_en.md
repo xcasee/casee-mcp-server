@@ -19,7 +19,7 @@ This folder contains the Docker configuration files for casee-mcp-server.
 cd casee_mcp_server
 
 # 1. Configure the API Key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 2. Build and start the container
 docker compose -f docker/docker-compose.yml up -d
@@ -38,14 +38,14 @@ docker compose -f docker/docker-compose.yml down
 
 ```bash
 # 1. Configure environment variables
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 2. Pull or load the image
 # Option A: Pull from the registry
-docker pull casee-mcp-server:1.0.0
+docker pull casee-mcp-server:1.10.0
 
 # Option B: Load from a local tar file
-docker load -i casee-mcp-server-1.0.0.tar
+docker load -i casee-mcp-server-1.10.0.tar
 
 # 3. Start the service
 docker compose -f docker/docker-compose.server.yml up -d
@@ -61,17 +61,17 @@ docker compose -f docker/docker-compose.server.yml ps
 docker compose -f docker/docker-compose.yml build
 
 # Export the image as a tar file
-docker save casee-mcp-server:1.0.0 -o casee-mcp-server-1.0.0.tar
+docker save casee-mcp-server:1.10.0 -o casee-mcp-server-1.10.0.tar
 
 # Import the image on the target server
-docker load -i casee-mcp-server-1.0.0.tar
+docker load -i casee-mcp-server-1.10.0.tar
 ```
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `CASEE_API_KEY` | Yes | - | CaSee API Key |
+| `CASEE_IS_API_KEY` | Yes | - | Deployment is-server key (stdio/anonymous fallback; callers use their own X-API-Key). Legacy `CASEE_API_KEY` is still accepted |
 | `CASEE_API_BASE_URL` | No | `https://casee.me` | CaSee Intelligence Server URL |
 | `CASEE_TIMEOUT` | No | `30` | Request timeout (seconds) |
 | `MCP_TRANSPORT` | No | `streamable-http` | Transport protocol |

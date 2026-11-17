@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.0.0-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.10.0-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -19,7 +19,7 @@
 
 **CaSee** 是一个**AI驱动的竞争情报与市场洞察平台** —— "以策略取胜，先感知机会，决策千里之外"。
 
-CaSee 提供**可信来源的竞争情报**，帮助初创企业发现市场机会，助力成熟企业扩大竞争优势。它解决了企业竞争情报的核心痛点：
+CaSee 提供**可验证的竞争情报**，帮助初创企业发现市场机会，助力成熟企业扩大竞争优势。它解决了企业竞争情报的核心痛点：
 
 - 碎片化的情报收集
 - 低效的人工分析
@@ -55,10 +55,10 @@ casee-mcp-server 是**MCP（模型上下文协议）网关**，将 CaSee 的竞�
 
 它连接了两个世界：
 
-- **CaSee 的可信情报后端** — 500+ 可信情报源，提供 T-Score 可信度评分、实时竞争动态和量化分析
+- **CaSee 的情报后端** — 精选情报源，提供 T-Score 可信度评分、实时竞争动态和量化分析
 - **您的 AI Agent** — 任何支持 MCP 的 LLM 应用（stdio 或 Streamable-HTTP）
 
-通过 casee-mcp-server，您的 AI Agent 可以从 CaSee 平台获取**实时、可信来源的情报检索** — 从通用聊天工具转变为可验证的竞争情报分析师，能够检索可信来源、运行复杂逻辑检索、分析趋势和按来源聚合 — 所有功能通过 6 个简单的 MCP 工具实现。
+通过 casee-mcp-server，您的 AI Agent 可以从 CaSee 平台获取**实时、可信度评分的情报检索** — 从通用聊天工具转变为可验证的竞争情报分析师，能够运行复杂逻辑检索、分析趋势和按类别/地区/语言聚合 — 所有功能通过一组紧凑的 MCP 工具实现。
 
 ***
 
@@ -75,14 +75,14 @@ LLM AI Agent（Claude、GPT等）可以生成竞争情报报告，但其分析**
 - 不可验证的来源（幻觉或未知来源）
 - 浅层分析（缺乏行业特定框架）
 
-**casee-mcp-server** 通过为 AI Agent 提供**实时、可信来源的情报检索**来弥合这一差距：
+**casee-mcp-server** 通过为 AI Agent 提供**实时、可信度评分的情报检索**来弥合这一差距：
 
 | 维度 | 仅使用 LLM | 使用 casee-mcp-server |
 |------|------------|----------------------|
-| **来源可信度** | 未知 / 幻觉 | 500+ 可信情报源，带 tscore (0-1) 可信度评分 |
+| **来源可信度** | 未知 / 幻觉 | 精选情报源，带 tscore (0-1) 可信度评分 |
 | **数据新鲜度** | 训练截止日期 | 实时，可配置时间窗口（1-365天） |
-| **查询精度** | 仅自然语言 | 类Google语法：`+AND` / `-NOT` / `"短语"` / `(分组)` |
-| **分析深度** | 表面总结 | 趋势分析 + 来源聚合 |
+| **查询精度** | 仅自然语言 | 类搜索引擎语法：`+AND` / `-NOT` / `"短语"` / `(分组)` |
+| **分析深度** | 表面总结 | 趋势分析 + 类别/地区/语言聚合 |
 | **可追溯性** | 无 | 每个结果都链接到特定来源、日期和 tscore |
 
 > **核心价值**：将 AI Agent 从"聊天工具"转变为**可信的竞争情报分析系统** —— 提供及时、可追溯、可量化的情报。
@@ -109,7 +109,7 @@ LLM AI Agent（Claude、GPT等）可以生成竞争情报报告，但其分析**
 
 #### 第 1 步：获取 CaSee API Key
 
-在 [https://casee.me](https://casee.me) 注册并创建一个**只读 API Key** 给您的 Agent（建议将其范围限定为 `intelligence:read` + `sources:read`）。请妥善保管 —— 它会为每个请求进行认证。
+在 [https://casee.me](https://casee.me) 注册并创建一个**只读 API Key** 给您的 Agent（建议将其范围限定为 `intelligence:read`）。请妥善保管 —— 它会为每个请求进行认证。
 
 #### 第 2 步：安装
 
@@ -125,8 +125,10 @@ cd casee-mcp-server && pip install -e .
 #### 第 3 步：配置环境变量
 
 ```bash
-export CASEE_API_KEY=casee_xxx                          # 您的 CaSee API Key (casee.me)
+export CASEE_IS_API_KEY=casee_xxx                          # 您的 CaSee API Key (casee.me)
 export CASEE_API_BASE_URL=https://casee.me # CaSee 情报服务器 URL
+export CASEE_OPENAPI_BASE_URL=https://origin.casee.me/api/v1/openapi  # 直连源站，绕过 CDN
+export CASEE_PORTAL_BASE_URL=https://www.casee.me
 ```
 
 #### 第 4 步：启动服务器
@@ -165,13 +167,13 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-您应该看到所有 **6 个工具**：`find_trusted_sources`、`search_intelligence`、`analyze_trend`、`aggregate_by_source`、`semantic_search_tool`、`search_with_cvc`。
+您应该看到 **60 个工具**：6 个检索与批量检索工具（`search_intelligence` / `analyze_trend` / `aggregate_intelligence` / `semantic_search_tool` / `search_with_cvc` / `batch_search`）、7 个 CVC 管理工具、9 个报告工具（模板 / 预检 / 生成 / 轮询 / 分享 / 备份 / 重建 / health）、5 个建链工具（企业检索 / 创建 / 检索任务查询 / 创建任务查询 / 构建进度），以及 33 个 v1.7 OpenAPI 能力补齐工具（Credits / 账本 / 配额、报告下载、图表、模板 CRUD、价值链巡检与经营洞察）。
 
 #### 第 6 步：使用 Docker 运行（生产环境推荐）
 
 ```bash
 # 1. 配置您的 API Key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 2. 构建并启动
 docker compose -f docker/docker-compose.yml up -d
@@ -189,11 +191,11 @@ docker compose -f docker/docker-compose.yml ps
 ```
 MCP 端点 : https://casee.me/mcp
 传输协议    : Streamable-HTTP
-服务器       : casee（6 个 MCP 工具）
+服务器       : casee（60 个 MCP 工具）
 后端      : CaSee 情报服务器（自动解析）
 ```
 
-只需从 [https://casee.me](https://casee.me) 获取您的 `CASEE_API_KEY`，并将 URL 接入您的 AI Agent。直接跳转到[平台集成](#-平台集成)部分，查看每个平台的逐步指南 — 无需 Python，无需 Docker。
+只需从 [https://casee.me](https://casee.me) 获取您的 `CASEE_IS_API_KEY`，并将 URL 接入您的 AI Agent。直接跳转到[平台集成](#-平台集成)部分，查看每个平台的逐步指南 — 无需 Python，无需 Docker。
 
 > **提示**：在配置客户端之前，快速检查的方法是对托管端点运行附带的测试套件：
 >
@@ -205,33 +207,177 @@ MCP 端点 : https://casee.me/mcp
 
 ## 🧰 MCP 工具
 
-服务器为 AI Agent 暴露 **6 个 MCP 工具**，支持传统的基于关键词的检索和高级语义检索：
+服务器为 AI Agent 暴露 **60 个 MCP 工具**，覆盖检索、CVC 管理、建链与端到端报告生成。
+
+### 检索工具
 
 | 工具 | 描述 | 关键参数 |
 |------|------|----------|
-| `find_trusted_sources` | 按类别、关键词、地区、语言发现可信来源 | `category`、`min_tscore`、`keyword`、`limit` |
-| `search_intelligence` | 复杂逻辑检索：AND/OR/NOT/短语/同义词组 | `q`（查询语法）、`source_ids`、`min_tscore`、`days` |
-| `analyze_trend` | 情报量的时间序列趋势分析 | `q`、`source_ids`、`days` |
-| `aggregate_by_source` | 按来源聚合：计数、平均 tscore、示例标题 | `q`、`source_ids`、`days` |
+| `search_intelligence` | 复杂逻辑检索：AND/OR/NOT/短语/同义词组 | `q`（查询语法）、`min_tscore`、`days` |
+| `analyze_trend` | 情报量的时间序列趋势分析 | `q`、`days` |
+| `aggregate_intelligence` | 按 `category` / `region` / `language` 维度聚合 | `q`、`dimension`、`days` |
 | `semantic_search_tool` | 通过 CVC 模型进行语义检索：BM25 + 向量 ANN + RRF 融合 | `cvc_model_id`、`q`、`mode`、`top_k`、`days`、`min_tscore` |
-| `search_with_cvc` | 带可选 CVC 模型同步的关键词检索，用于语义索引 | `q`、`cvc_model_id`、`source_ids`、`min_tscore`、`days` |
+| `search_with_cvc` | 带可选 CVC 模型同步的关键词检索，用于语义索引 | `q`、`cvc_model_id`、`min_tscore`、`days` |
+| `batch_search` | 服务端批量检索：多组查询一次往返 | `groups`、`dedupe`、`max_concurrency` |
 
-### 两阶段可信检索工作流（关键词检索）
+### CVC 管理工具
+
+| 工具 | 描述 | 关键参数 |
+|------|------|----------|
+| `list_cvc_models_tool` | 模型列表（状态 / 版本 / 实体与情报计数 / 分页） | `status`、`keyword`、`page`、`page_size`、`sort` |
+| `cvc_stats_tool` | 单模型归集统计 | `cvc_model_id` |
+| `cvc_cache_purge_tool` | 重置归集缓存（三库清理） | `cvc_model_id` |
+| `cvc_cleanup_status_tool` | 清理进度与三库残留对账 | `cvc_model_id` |
+| `cvc_reindex_tool` | 重放归集审计并重建归集库 | `cvc_model_id` |
+| `intelligence_purge_tool` | 按时间截止全量清除历史情报（支持 dry-run） | `older_than_days`、`end_date`、`dry_run`、`include_mongodb` |
+| `intelligence_purge_status_tool` | 全量清除进度与残留对账 | `task_id` |
+
+> **v1.10.0（2026-11-17）：** 公网收敛加固——新增 `sanitize.py` 响应投影并统一挂在
+> 两类工具出口（`source_id` 不透明化、不下发信源目录与 `top_sources` 榜单、
+> Google News 采集通道指纹归一为 `公开媒体` / `public_news`）；锁定升级
+> `casee` SDK wheel 至 **2.0.0**（上游已移除信源枚举与 Google News 客户端方法）。
+>
+> **v1.7.1（2026-11-13）：** 账本对账修复——`direction=refund|charge|grant`
+> 方向过滤、`older_cursor` 别名、`page` 页码分页，以及覆盖全量历史的
+> `summary.refunded_count`；`billing.ledger_query` 直接给出对应的流水方向。
+>
+> **v1.7.0（2026-11-12）：** 补齐 `/api/v1/openapi` 全部能力——新增 Credits /
+> 账本流水 / 配额工具、`casee_download_report`（含 413 `TEMPLATE_TOO_LARGE`
+> 兜底）、图表字典 / 预览 / 渲染包、报告模板 CRUD、价值链巡检（实体 / 本体 /
+> 情报 / 导出）与经营洞察；大产物统一落盘到 `CASEE_DOWNLOAD_DIR`。
+>
+> **v1.6.0（2026-11-02）：** 建链工具改为异步任务接口
+> （`/companies/search-jobs` / `/cvc-models/creation-jobs`），新增
+> `wait_seconds` 等待预算；预算耗尽时用 `get_company_search_job` /
+> `get_cvc_creation_job` 继续轮询。
+
+### 报告工具（v1.4）
+
+| 工具 | 描述 | 关键参数 |
+|------|------|----------|
+| `list_report_templates` | 系统 + 租户报告模板列表 | `scope`、`q`、`page`、`page_size` |
+| `plan_report` | 生成前预检：章节 / 图表可用性 / 缺口 / 兼容性 / Credits | `cvc_id`、`template_id`、`time_range`、`language` |
+| `generate_report` | 创建异步报告任务（消耗 1 Credit） | `cvc_id`、`template_id`、`output_formats`、`idempotency_key` |
+| `get_report_job` | 轮询任务状态、质量、产物与分享链接 | `job_id`、`wait_ms` |
+| `list_report_jobs` | 报告任务历史（分页） | `cvc_id`、`status`、`page`、`page_size` |
+| `share_report` | 创建免密 `rs-` 分享快照 | `job_id`、`ttl_seconds` |
+| `backup_cvc_intelligence` | 查询备份源元信息（条数 / ETag），不下载正文 | `cvc_id` |
+| `rebuild_cvc_model` | 破坏性重建；默认 dry-run，`confirm=true` 才执行 | `cvc_id`、`confirm`、`backup`、`dry_run` |
+| `casee_health` | 网关/后端版本、API Base、Credits 余额 | — |
+
+报告类工具成功返回 `{ok: true, data, meta}`，`meta` 含 `elapsed_ms`、
+`request_id`（可得时）与 `next_poll_after_ms`；失败沿用下方结构化错误字段并附 `ok: false`。
+
+### 建链工具（v1.6）
+
+| 工具 | 描述 | 关键参数 |
+|------|------|----------|
+| `search_cvc_companies` | 按分析目标检索候选企业：创建异步任务并在 `wait_seconds` 内轮询；返回 products/markets/competitors 建议值，`selected=true` 表示默认全选 | `query`、`language`、`limit`、`wait_seconds` |
+| `create_cvc_model` | 通过异步任务创建价值链草稿（企业名或对象均可）；返回 `build_readiness` / `warnings` / `next_step` | `name`、`companies`、`query_topic`、`query_type`、`overwrite`、`idempotency_key`、`wait_seconds` |
+| `get_company_search_job` | 按 `job_id` 查询企业检索任务；succeeded 时 `result` 与同步检索返回一致 | `job_id` |
+| `get_cvc_creation_job` | 按 `job_id` 查询价值链创建任务；succeeded 时 `result` 含 `cvc_id` / `build_readiness` | `job_id` |
+| `get_cvc_build_status` | 构建进度：阶段进度 / 当前步骤 / 失败归因 / 轮询建议；支持长轮询与增量日志 | `cvc_id`、`wait_seconds`、`include_logs`、`log_since` |
+
+> 建链流程：`search_cvc_companies`（把列表给用户确认，默认全选）→ `create_cvc_model`
+> → `rebuild_cvc_model(confirm=true, dry_run=false)` → 立即告知用户「约 10 分钟 + 邮件通知」，
+> 不要阻塞等待。两个创建工具内部优先调用异步任务接口；等待预算耗尽时返回 `job_id`，
+> 继续用 `get_company_search_job` / `get_cvc_creation_job` 轮询。用户回来问进度时用
+> `get_cvc_build_status` 汇报 `phases[]` 与 `failure.hint`。
+
+### OpenAPI 能力补齐工具（v1.7）
+
+v1.7 起 MCP 工具集合覆盖 `/api/v1/openapi` 的全部能力，**不再需要直连 OpenAPI**。
+
+**计费与配额**
+
+| 工具 | 描述 | 关键参数 |
+|------|------|----------|
+| `casee_get_credits` | Credits 余额（三桶）、在途预扣、`ledger_cursor` 与各操作单价；生成前预检不扣点 | — |
+| `casee_get_credit_ledger` | 账本流水对账：预扣/确认/退还；支持 `direction=refund` 直接筛退款、`page` 页码、`cursor`/`older_cursor` 游标与 `since_id` 增量；`summary.refunded_count` 覆盖全量历史 | `operation`、`status`、`direction`、`job_id`、`cvc_id`、`page`、`cursor`/`older_cursor`、`since_id`、`page_size`（最大 500） |
+| `casee_get_quota` | Key 的 scope、分钟/日配额水印、可访问模型数与产品开通情况 | — |
+
+**报告产物与模板**
+
+| 工具 | 描述 | 关键参数 |
+|------|------|----------|
+| `casee_download_report` | 下载 HTML/Markdown/PPT(deck) 到本地文件，返回 `saved_path` / `sha256` / `bytes`；`inline=true` 可回传内容 | `job_id`、`format`、`save_path`、`inline` |
+| `casee_issue_report_access_code` | 签发一次性报告生成码（网页免 Key 生成） | `cvc_id`、`template_id`、`time_range`、`output_formats`、`ttl_seconds` |
+| `casee_get_report_template` | 模板详情：章节、每节 `ca_code`、写作约束 | `template_id` |
+| `casee_download_report_template` | 模板导出为 Markdown（可改造后重新上传） | `template_id`、`save_path` |
+| `casee_create_report_template` | 上传租户自定义模板（校验通过后保存） | `template_id`、`name`、`content_md`、`summary`、`status` |
+| `casee_update_report_template` | 编辑租户模板（系统模板不可改） | `template_id`、`name`/`content_md`/`summary`/`status` |
+| `casee_delete_report_template` | 软删除租户模板（需 `confirm=true`） | `template_id`、`confirm` |
+| `casee_validate_report_template` | 只校验不保存，逐条返回错误码 | `template_id`、`content_md` |
+
+> **413 兜底：** `share_report` 返回 `error_code=TEMPLATE_TOO_LARGE`（HTTP 413）时
+> 不要重试；`details.fallback_tool` 会指向 `casee_download_report`，改为下载文件分发。
+
+**图表**
+
+| 工具 | 描述 | 关键参数 |
+|------|------|----------|
+| `casee_search_charts` | 图表能力字典检索；传 `cvc_id` 附带可用性 | `domain`、`function_category`、`q`、`cvc_id`、`time_range`、`detail` |
+| `casee_get_chart` | 单图详情与字段口径 | `ca_code`、`cvc_id`、`time_range` |
+| `casee_preview_chart` | 在线预览渲染包（不消耗报告配额） | `ca_code`、`cvc_id`、`include_embed`、`save_path` |
+| `casee_get_chart_bundle` | 一步签发 `cc-` code 并取渲染包（也可直接传已有 `code`） | `code`、`cvc_id`、`chart`、`ttl_seconds`、`include_embed` |
+
+**价值链巡检与经营洞察**
+
+| 工具 | 描述 | 关键参数 |
+|------|------|----------|
+| `casee_home_overview` | 租户概览：模型状态分布、构建中任务、最近报告、Credits | `limit` |
+| `casee_get_cvc_model` | 模型元数据、图谱规模与实体集合 | `cvc_id`、`include`、`detail`、`expand` |
+| `casee_list_cvc_companies` | 企业清单（角色/官网/已选实体） | `cvc_id` |
+| `casee_list_cvc_entities` | 本体实体分页列表 | `cvc_id`、`entity_type`、`keyword`、`company`、`page` |
+| `casee_get_cvc_entity` | 单实体属性、关系、IRI 与相关情报 | `cvc_id`、`entity_type`、`entity_id`、`by` |
+| `casee_get_ontology_schema` | 本体 TBox（类/属性定义） | `cvc_id` |
+| `casee_export_ontology` | 导出实体/关键词子图为 OWL 2 DL（≤200 三元组） | `cvc_id`、`entity_type`、`entity_id`、`keyword`、`format`、`include` |
+| `casee_search_cvc_intelligence` | 价值链内情报检索（关键词/情绪/时间/公司/语言） | `cvc_id`、`keywords`、`match`、`sentiment`、`days`、`page` |
+| `casee_get_intelligence_detail` | 单条情报详情与命中实体 | `cvc_id`、`intel_id` |
+| `casee_export_intelligence` | 全量情报导出到 JSONL/JSON 文件（rebuild 前备份） | `cvc_id`、`format`、`save_path` |
+| `casee_get_cvc_dashboard` | 经营仪表盘（情报量/情绪/声量/事件，不耗点数） | `cvc_id`、`time_range` |
+| `casee_get_market_trends` | 市场趋势（热度/来源/话题变化） | `cvc_id`、`time_range` |
+| `casee_get_enterprise_insight` | 企业洞察（画像/短板/机会/风险），默认 `dry_run=true` 只探测不扣点 | `cvc_id`、`company_name`、`dry_run` |
+| `casee_get_market_insight` | 市场洞察（规模/增长/格局/驱动/风险），默认 `dry_run=true` | `cvc_id`、`market_name`、`dry_run` |
+| `casee_get_customer_insight` | 客户洞察（偏好/需求信号/决策链），默认 `dry_run=true` | `cvc_id`、`customer_name`、`dry_run` |
+
+**能力发现**
+
+| 工具 | 描述 | 关键参数 |
+|------|------|----------|
+| `casee_list_endpoints` | 接口目录（分组 / 关键词 / 完整参数） | `group`、`q`、`detail` |
+| `casee_get_endpoint` | 单接口详情（参数、错误码、变更记录） | `endpoint_id` |
+| `casee_list_mcp_tools` | 后端声明的 MCP tools/resources/prompts 快照 | — |
+
+> 大产物（报告 HTML、情报导出、OWL）默认写入 `CASEE_DOWNLOAD_DIR`
+> （缺省为系统临时目录下的 `casee-downloads`），返回 `saved_path`、`bytes`
+> 与 `sha256`；需要正文时传 `inline=true`（可配合 `max_inline_chars` 截断）。
+
+### MCP Prompt 配方（v1.6）
+
+`prompts/list` 暴露三个可复用配方：
+
+- `cvc_creation`：企业检索 → 用户确认（默认全选）→ 创建 → 构建 → 10 分钟/邮件通知
+- `report_generation`：模板 → 预检 → 生成 → 轮询 → 分享 → 质量声明
+- `retrieval_quality_guard`：语义检索退化 / 零结果时的披露规则
+
+### 范围优先检索工作流（关键词检索）
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  阶段 1: find_trusted_sources(category="wire", min_tscore=0.7) │
-│  → 返回：[reuters, ap, bloomberg, ...]                         │
+│  阶段 1: 描述查询与范围                                          │
+│  q="+EV +(battery|charging) -China"                             │
+│  范围：category / region / language、min_tscore、days            │
 └──────────────────────────┬─────────────────────────────────────┘
-                           │ source_ids
+                           │
                            ▼
 ┌────────────────────────────────────────────────────────────────┐
 │  阶段 2: search_intelligence(                                    │
 │      q="+EV +(battery|charging) -China",                        │
-│      source_ids=["reuters","ap","bloomberg"],                   │
 │      min_tscore=0.6, days=30                                    │
 │  )                                                              │
 │  → 返回：经过验证的高质量情报结果                                 │
+│  → 可继续调用 analyze_trend / aggregate_intelligence             │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -315,8 +461,9 @@ pip install casee-mcp-server
     "casee-intelligence": {
       "command": "casee-mcp",
       "env": {
-        "CASEE_API_KEY": "casee_xxx",
-        "CASEE_API_BASE_URL": "https://casee.me"
+        "CASEE_IS_API_KEY": "casee_xxx",
+        "CASEE_API_BASE_URL": "https://casee.me",
+        "CASEE_OPENAPI_BASE_URL": "https://origin.casee.me/api/v1/openapi"
       }
     }
   }
@@ -329,15 +476,15 @@ pip install casee-mcp-server
 
 #### 第 5 步：验证工具
 
-点击作曲家输入框旁边的**工具（锤子）图标**。您应该看到 `casee-intelligence` 及其 **6 个工具**（`find_trusted_sources`、`search_intelligence`、`analyze_trend`、`aggregate_by_source`、`semantic_search_tool`、`search_with_cvc`）。
+点击作曲家输入框旁边的**工具（锤子）图标**。您应该看到 `casee-intelligence` 及其 **60 个工具**（6 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、5 个建链工具）。
 
 #### 第 6 步：试用
 
 询问 Claude：
 
-> *"使用 casee 工具从可信来源搜索最新的 Nvidia 竞争情报，然后总结关键发现及其可信度评分。"*
+> *"使用 casee 工具搜索最新的 Nvidia 竞争情报，然后总结关键发现及其可信度评分。"*
 
-Claude 将调用 `find_trusted_sources` → `search_intelligence` 并提供可追溯的来源和 tscore 值的回答。
+Claude 将调用 `search_intelligence` 并提供可追溯的情报条目和 tscore 值的回答。
 
 > **备选方案 — 连接到托管端点（较新版本的 Claude Desktop）**：
 >
@@ -402,15 +549,15 @@ WorkBuddy 通过用户级配置文件注册 MCP 服务器：
 
 #### 第 4 步：验证工具
 
-打开 MCP 工具面板。您应该看到 `casee-intelligence` 及其 **6 个工具**（`find_trusted_sources`、`search_intelligence`、`analyze_trend`、`aggregate_by_source`、`semantic_search_tool`、`search_with_cvc`）。
+打开 MCP 工具面板。您应该看到 `casee-intelligence` 及其 **60 个工具**（6 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、5 个建链工具）。
 
 #### 第 5 步：试用
 
 询问 WorkBuddy：
 
-> *"追踪可信来源中最新的电动车电池竞争信号。"*
+> *"追踪最新的电动车电池竞争信号。"*
 
-WorkBuddy 将调用 `find_trusted_sources` → `search_intelligence` 并提供可追溯的来源和 tscore 值的回答。
+WorkBuddy 将调用 `search_intelligence` 并提供可追溯的情报条目和 tscore 值的回答。
 
 > **自托管变体** — 如果您在同一台机器上运行自己的 MCP 服务器，请将 `url` 指向 `http://127.0.0.1:8100/mcp`。文件的其余部分保持不变。
 >
@@ -463,13 +610,13 @@ Trae Work 通过全局配置文件 `~/.trae-cn/mcp_servers.json` 注册 MCP 服�
 
 #### 第 4 步：验证工具
 
-打开 MCP 工具面板。您应该看到 `casee-intelligence` 包含 **6 个工具**。根据需要启用。
+打开 MCP 工具面板。您应该看到 `casee-intelligence` 包含 **60 个工具**。根据需要启用。
 
 #### 第 5 步：请求情报
 
 示例提示：
 
-> *"使用 casee 检索查找最近的 AI 监管发展，仅筛选可信来源，并总结过去 30 天的趋势。"*
+> *"使用 casee 检索查找最近的 AI 监管发展，仅保留高可信度（tscore ≥ 0.6）的情报，并总结过去 30 天的趋势。"*
 
 ---
 
@@ -504,7 +651,7 @@ class CaseeSearchTool(BaseTool):
         async with stdio_client(
             StdioServerParameters(
                 command="casee-mcp",
-                env={"CASEE_API_KEY": "casee_xxx"}
+                env={"CASEE_IS_API_KEY": "casee_xxx"}
             )
         ) as (read, write):
             async with ClientSession(read, write) as session:
@@ -518,12 +665,12 @@ agent = initialize_agent(
     tools=[CaseeSearchTool()], llm=llm,
     agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION
 )
-agent.run("从可信来源查找电动车电池竞争情报")
+agent.run("从公开媒体查找电动车电池竞争情报")
 ```
 
 #### 第 3 步：运行 Agent
 
-Agent 现在决定何时在其推理循环中调用 `casee_search`，为您的 LLM 提供实时、可信来源的数据，而不是过时的训练知识。
+Agent 现在决定何时在其推理循环中调用 `casee_search`，为您的 LLM 提供实时、可信度评分的数据，而不是过时的训练知识。
 
 > **连接到托管端点** — 改为使用 `StreamableHttpClient` 连接 `https://casee.me/mcp` 而不是 `stdio_client`：
 >
@@ -567,7 +714,7 @@ from langchain.tools import tool
 async def search_intel(q: str) -> str:
     """检索竞争情报。q：查询语法，如 +EV +(battery|charging)"""
     async with stdio_client(
-        StdioServerParameters(command="casee-mcp", env={"CASEE_API_KEY": "casee_xxx"})
+        StdioServerParameters(command="casee-mcp", env={"CASEE_IS_API_KEY": "casee_xxx"})
     ) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -577,7 +724,7 @@ async def search_intel(q: str) -> str:
 
 analyst = Agent(
     role="竞争情报分析师",
-    goal="从可信来源检索和分析市场情报",
+    goal="从公开媒体检索和分析市场情报",
     tools=[search_intel],
 )
 
@@ -598,6 +745,118 @@ result = crew.kickoff()
 
 ***
 
+## ⚠️ 错误处理
+
+检索与 CVC 管理工具成功时返回业务 JSON；v1.4 报告工具成功时返回 `{ok: true, data, meta}`。失败时所有工具都返回统一的结构化错误对象，而不是不可解析的 SDK 异常文本（报告工具额外带 `ok: false`）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `error` | string | 历史字段：SDK 异常类名（保留兼容） |
+| `error_code` | string | **稳定机器码，Agent 应以此字段分支处理** |
+| `message` | string | 可读的上游错误信息 |
+| `status_code` | int \| null | 上游 HTTP 状态码（已知时） |
+| `code` | int \| null | 上游业务码（可得时） |
+| `details` | object | 结构化字段（`required_credits`、`current_credits`、`product`、`module_id`、`retry_after`、联系方式等） |
+| `hint` | string | 给 Agent 的可执行下一步 |
+| `retryable` | bool | 同一请求是否可安全重试 |
+| `action` | string | `contact_support` / `contact_admin` / `reauthenticate` / `retry_later` / `fix_request` / `inspect_error` / `report_bug` |
+
+### 错误码
+
+| `error_code` | HTTP | 含义 | Agent 处理 |
+|---|---|---|---|
+| `CREDITS_INSUFFICIENT` | 402 | 租户 Credits 点数不足 | 不要重试；充值或联系 CaSee 追加 Credits |
+| `PRODUCT_ACCESS_DENIED` | 403 | API Key 有效，但租户未开通所需产品模块 | 不要重试；请管理员开通对应产品 |
+| `SCOPE_DENIED` | 403 | API Key 缺少所需 scope | 重新创建具备对应 scope 的 Key |
+| `TENANT_DISABLED` | 403 | 租户已被禁用 | 联系管理员恢复 |
+| `AUTHENTICATION_FAILED` | 401 | API Key 缺失/无效/已撤销 | 检查 `CASEE_IS_API_KEY` 或重新创建 Key |
+| `RATE_LIMITED` | 429 | 频率或配额超限 | 按 `details.retry_after` 退避后重试 |
+| `VALIDATION_ERROR` | 422 | 请求参数不合法 | 按 `details` 修正请求 |
+| `TEMPLATE_TOO_LARGE` | 413 | 报告/模板超过分享或体积上限 | 不要重试；改用 `casee_download_report` 下载分发 |
+| `JOB_NOT_READY` | 409 | 报告任务未完成或并发受限 | 轮询 `get_report_job` 到 succeeded/partial 后重试 |
+| `CHART_UNSUPPORTED` | 400 | 图表编码未登记或不支持 Agent 取数 | 用 `casee_search_charts` 重新选图 |
+| `CHART_DATA_UNAVAILABLE` | 409 | 该价值链/时间窗无图表数据 | 换图或放宽 `time_range` |
+| `TEMPLATE_NOT_FOUND` | 404 | 报告模板不存在 | 用 `list_report_templates` 重新选择 |
+| `TEMPLATE_HEADER_INVALID` / `TEMPLATE_SECTION_INVALID` / `TEMPLATE_CHART_INVALID` / `TEMPLATE_PLACEHOLDER_INVALID` / `TEMPLATE_NAMESPACE_INVALID` | 400 | 模板结构、图表编码、占位符或命名空间不合法 | 用 `casee_validate_report_template` 自查后修正 |
+| `REBUILD_CONFIRMATION_REQUIRED` | 409 | 重建需要显式确认 | 传 `confirm=true`（建议 `backup=true`） |
+| `NOT_FOUND` | 404 | 资源不存在（如 `cvc_model_id`） | 核对标识 |
+| `TIMEOUT` | — | 客户端超时 | 稍后重试或调大 `CASEE_TIMEOUT` |
+| `NETWORK_ERROR` | — | DNS/连接/TLS 失败 | 检查 `CASEE_API_BASE_URL` 与网络 |
+| `SERVER_ERROR` | 5xx | 上游服务端错误 | 稍后重试；持续失败联系支持 |
+| `API_ERROR` | any | 其他上游 API 错误 | 查看 `message` / `details` |
+| `UNEXPECTED_ERROR` | — | 非预期的客户端错误 | 查看 `message`，可复现时上报缺陷 |
+
+### Credits 点数不足（402）
+
+```json
+{
+  "error": "APIError",
+  "error_code": "CREDITS_INSUFFICIENT",
+  "message": "Credits点数不足，需要1.0点，当前余额0.0点。请联系CaSee团队追加Credits。",
+  "status_code": 402,
+  "code": 402,
+  "details": {
+    "error": "CREDITS_INSUFFICIENT",
+    "required_credits": 1.0,
+    "current_credits": 0.0,
+    "operation": "report_generate",
+    "contact_email": "info@xcasee.com",
+    "contact_wechat": "@casee_me",
+    "contact_url": "/billing/service-contact"
+  },
+  "hint": "Insufficient Credits (required=1.0, current=0.0); top up or contact CaSee support, then retry.",
+  "retryable": false,
+  "action": "contact_support"
+}
+```
+
+### 缺少产品权限（403）
+
+此时 **API Key 是有效的**，只是租户未开通对应产品；不要误判为 Key 无效。
+
+```json
+{
+  "error": "AuthenticationError",
+  "error_code": "PRODUCT_ACCESS_DENIED",
+  "message": "当前租户未开通「客户情报平台」，请开通该产品后重试",
+  "status_code": 403,
+  "code": null,
+  "details": {
+    "product": "客户情报平台",
+    "contact_email": "info@xcasee.com",
+    "contact_wechat": "@casee_me",
+    "contact_url": "/billing/service-contact"
+  },
+  "hint": "The API key is valid, but the tenant has not subscribed to the required product module \"客户情报平台\". Ask an administrator to enable it and retry.",
+  "retryable": false,
+  "action": "contact_admin"
+}
+```
+
+`details.product` / `details.module_id` 可能出现的产品模块：
+
+| module_id | 产品 |
+|---|---|
+| `product-competitive-intel` | 产品竞争情报平台 |
+| `market-intel` | 市场情报平台 |
+| `customer-intel` | 客户情报平台 |
+| `api-service` | API 服务集成平台 |
+| `source-collector` | 信源采集平台 |
+| `decision-simulator` | 决策仿真推理系统 |
+
+### 传输层鉴权错误
+
+Streamable-HTTP 网关开启 `MCP_REQUIRE_API_KEY=true` 时，受保护的 JSON-RPC 方法会在进入工具前被拦截：
+
+| HTTP | `error.data.error_code` | 含义 |
+|---|---|---|
+| 401 | `AUTH_MISSING_KEY` | 缺少 `X-API-Key` 请求头 |
+| 401 | `AUTH_INVALID_KEY` | Key 无效或已撤销 |
+| 401 | `AUTH_KEY_PLANE_MISMATCH` | Key 在 is-server 有效，但未登记到 EIRS 开放 API；请改用门户生成的 `casee_...` 租户 Key |
+| 503 | `UPSTREAM_UNAVAILABLE` | Key 校验服务不可用；按 `Retry-After` 重试 |
+
+***
+
 ## 🐳 Docker 部署
 
 ```bash
@@ -606,7 +865,7 @@ git clone https://github.com/casee/casee-mcp-server.git
 cd casee-mcp-server
 
 # 设置您的 API Key
-echo "CASEE_API_KEY=casee_xxx" > .env
+echo "CASEE_IS_API_KEY=casee_xxx" > .env
 
 # 启动
 docker compose -f docker/docker-compose.yml up -d
@@ -624,13 +883,18 @@ curl -X POST http://localhost:8100/mcp \
 
 | 环境变量 | 必需 | 默认值 | 描述 |
 |---------|------|--------|------|
-| `CASEE_API_KEY` | 是 | — | CaSee API Key（在 <https://casee.me> 获取） |
+| `CASEE_IS_API_KEY` | 是 | — | 部署级 is-server Key（在 <https://casee.me> 获取；旧名 `CASEE_API_KEY` 仍兼容） |
 | `CASEE_API_BASE_URL` | 否 | `https://casee.me` | CaSee 情报服务器 URL |
 | `CASEE_TIMEOUT` | 否 | `30` | 请求超时（秒） |
 | `MCP_TRANSPORT` | 否 | `stdio` | `stdio` 或 `streamable-http` |
 | `MCP_HOST` | 否 | `127.0.0.1` | Streamable-HTTP 监听地址 |
 | `MCP_PORT` | 否 | `8100` | Streamable-HTTP 监听端口 |
 | `MCP_PATH` | 否 | `/mcp` | Streamable-HTTP 端点路径 |
+| `CASEE_OPENAPI_BASE_URL` | 否 | 自动推导 | 报告工具使用的 OpenAPI Base（默认 `<api_base>/api/v1/openapi`） |
+| `CASEE_PORTAL_BASE_URL` | 否 | 自动推导 | 分享/下载链接使用的门户源站 |
+| `CASEE_REPORTS_TIMEOUT` | 否 | `120` | 报告/预检请求读超时（秒） |
+| `MCP_JSON_RESPONSE` | 否 | `false` | `true` 时 Streamable-HTTP 返回单个 JSON（替代 SSE，兼容严格客户端） |
+| `MCP_REQUIRE_API_KEY` | 否 | `false` | 为 HTTP 网关启用 `X-API-Key` 校验 |
 
 ***
 
@@ -649,19 +913,19 @@ curl -X POST http://localhost:8100/mcp \
 ┌───────┴──────────────┴──────────────┴───────────────┴───────────┐
 │                    casee-mcp-server (本项目)                      │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  工具: find_trusted_sources / search_intelligence /      │   │
-│  │         analyze_trend / aggregate_by_source /            │   │
+│  │  工具: search_intelligence / analyze_trend /             │   │
+│  │         aggregate_intelligence /                         │   │
 │  │         semantic_search_tool / search_with_cvc           │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  casee SDK (search_sources / search_advanced /            │   │
+│  │  casee SDK (search_advanced /                            │   │
 │  │              semantic_search / ...)                       │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └───────────────────────────┬─────────────────────────────────────┘
                             │  HTTP (X-API-Key)
 ┌───────────────────────────┴─────────────────────────────────────┐
 │  CaSee 情报服务器 (is_server)                                    │
-│  /v1/sources/search  │  /v1/searchx  │  /v1/search  │           │
+│  /v1/searchx  │  /v1/search  │  /v1/semantic-search        │
 │  /v1/semantic-search  │  /v1/cvc/*  │  ...                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -670,7 +934,7 @@ curl -X POST http://localhost:8100/mcp \
 
 ## 🎯 使用场景 — 竞争情报实战
 
-本章将通过 `casee-mcp-server` 的 6 个 MCP 工具，完成一个完整的端到端竞争情报工作流。每个步骤都提供**直接 API 调用**和您的 AI Agent 将使用的等效**MCP 工具调用**。
+本章将通过 `casee-mcp-server` 的 MCP 工具，完成一个完整的端到端竞争情报工作流。每个步骤都提供**直接 API 调用**和您的 AI Agent 将使用的等效**MCP 工具调用**。
 
 ### 场景 — 全球电动车市场情报
 
@@ -682,7 +946,7 @@ curl -X POST http://localhost:8100/mcp \
 | **产品** | EV、电动汽车、电池、充电、BEV、插电混合动力 |
 | **目标市场** | 中国、欧洲、美国、东南亚 |
 | **主题** | 市场份额、定价策略、电池技术、充电基础设施、政策与法规 |
-| **可信度要求** | 仅高可信度来源（tscore ≥ 0.6） |
+| **可信度要求** | 仅高可信度条目（tscore ≥ 0.6） |
 | **时间窗口** | 最近 30 天 |
 
 ---
@@ -702,7 +966,7 @@ curl -X POST http://localhost:8100/mcp \
 | 市场 | OR | `China` \| `Europe` \| `US` \| `"Southeast Asia"` |
 | 排除 | NOT | `rumor` \| `gossip` |
 
-在**类Google查询语法**（`search_intelligence` 的 `q` 参数）中：
+在**类搜索引擎查询语法**（`search_intelligence` 的 `q` 参数）中：
 
 ```text
 +(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|"electric vehicle"|battery|charging) +(China|Europe|US) -rumor
@@ -710,63 +974,16 @@ curl -X POST http://localhost:8100/mcp \
 
 ---
 
-### 步骤 2 — 查找可信来源
+### 步骤 2 — 限定范围并检索情报
+
+显式限定检索范围（category / region / language）并发起检索：
 
 **直接 API：**
 
 ```bash
-curl -H "X-API-Key: $CASEE_API_KEY" \
-  "https://casee.me/v1/sources/search?category=wire&min_tscore=0.6&sample_size=2"
-```
-
-**通过 MCP（从您的 Agent 调用）：**
-
-```text
-工具: find_trusted_sources
-参数:
-  category  = "wire"
-  min_tscore = 0.6
-  sample_size = 2
-  limit     = 20
-```
-
-**响应（节选）：**
-
-```json
-{
-  "count": 3, "total": 3,
-  "sources": [
-    {
-      "source_id": "reuters-business",
-      "name": "Reuters Business",
-      "category": "wire",
-      "tier": 1,
-      "propaganda_risk": "low",
-      "state_affiliated": false,
-      "tscore": 0.81,
-      "sample_data": [
-        { "title": "EU对中国电动车进口征收关税...", "tscore": 0.81 }
-      ]
-    }
-  ]
-}
-```
-
-捕获 `source_id` 列表（例如 `["reuters-business", "ap-news", "ansa"]`）— 它们将成为步骤 3 中的 `source_ids` 参数。
-
----
-
-### 步骤 3 — 两阶段情报检索
-
-使用步骤 2 中的可信 `source_ids` 和步骤 1 中的查询。
-
-**直接 API：**
-
-```bash
-curl -G -H "X-API-Key: $CASEE_API_KEY" \
+curl -G -H "X-API-Key: $CASEE_IS_API_KEY" \
   "https://casee.me/v1/searchx" \
   --data-urlencode 'q=+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US) -rumor' \
-  --data-urlencode 'source_ids=reuters-business,ap-news,ansa' \
   --data-urlencode 'min_tscore=0.6' \
   --data-urlencode 'days=30' \
   --data-urlencode 'limit=50'
@@ -783,44 +1000,42 @@ curl -G -H "X-API-Key: $CASEE_API_KEY" \
 工具: search_intelligence
 参数:
   q          = '+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US) -rumor'
-  source_ids = ["reuters-business", "ap-news", "ansa"]
   min_tscore = 0.6
   days       = 30
   limit      = 50
 ```
 
-结果是经过验证的高质量情报项列表 — 每个项都有 `title`、`source_id`、`published_at`、`tscore` 和 `url`，用于完全可追溯。
+结果是经过验证的高质量情报项列表 — 每个项都有 `title`、不透明的 `source_id`、`published_at`、`tscore` 和指向原始公开文章的 `url`。
 
 ---
 
-### 步骤 4 — 分析和可视化情报
+### 步骤 3 — 分析和可视化情报
 
-获得可信的项后，Agent（或下游 BI 工具）执行四种标准分析。每种分析也作为一次性 MCP 工具调用可用：
+获得情报项后，Agent（或下游 BI 工具）执行四种标准分析。每种分析也作为一次性 MCP 工具调用可用：
 
 | 分析 | 描述 | MCP 工具 |
 |------|------|----------|
 | **供应商提及频率** | 每个供应商被提及的项数 | 在 `search_intelligence` 结果上的自定义聚合 |
-| **来源贡献** | 每个来源的项数 / 平均 tscore | `aggregate_by_source(q, source_ids, days)` |
-| **时间序列趋势** | 每周/每月的数量，查找拐点 | `analyze_trend(q, source_ids, days)` |
+| **类别 / 地区贡献** | 每个分组的项数 / 平均 tscore | `aggregate_intelligence(q, dimension="category"\|"region"\|"language", days)` |
+| **时间序列趋势** | 每周/每月的数量，查找拐点 | `analyze_trend(q, days)` |
 | **结构化导出** | 用于下游 BI / LLM 的 JSON | 迭代 `search_intelligence` 结果，导出为 JSON |
 
 **MCP 对话示例（Agent 依次调用它们）：**
 
 ```text
-用户: "给我一份过去 30 天的电动车市场简报，仅限顶级来源。"
+用户: "给我一份过去 30 天的电动车市场简报。"
 
 Agent:
-  → find_trusted_sources(category="wire", min_tscore=0.7, limit=20)
   → search_intelligence(q='+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US)',
-                        source_ids=[...], min_tscore=0.6, days=30)
+                        min_tscore=0.6, days=30)
   → analyze_trend(q='+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US)',
-                  source_ids=[...], days=30)
-  → aggregate_by_source(q='+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US)',
-                        source_ids=[...], days=30)
+                  days=30)
+  → aggregate_intelligence(q='+(Tesla|BYD|NIO|Xpeng|Volkswagen) +(EV|battery|charging) +(China|Europe|US)',
+                           dimension="region", days=30)
   → 总结：逐个供应商的动态、区域分布、周环比变化，并将 tscore ≥ 0.8 的任何项标记为"高可信度信号"。
 ```
 
-这就是**两阶段可信检索**模式（参见 [MCP 工具](#-mcp-工具)）：先发现来源，再用发现的来源搜索 — 将嘈杂的 LLM 答案转化为**可追溯、量化的竞争情报简报**。
+这就是**范围优先检索**模式（参见 [MCP 工具](#-mcp-工具)）：先按 category / region / language 限定范围，再检索，再做聚合 / 趋势 — 将嘈杂的 LLM 答案转化为**可追溯、量化的竞争情报简报**。
 
 ---
 
@@ -834,7 +1049,7 @@ Agent:
 | **消费电子需求信号** | 智能手表产品经理 | "分析关于智能手表的客户反馈 — 健康监测需求、电池续航满意度" | `+(smartwatch\|"smart watch") +(health\|"battery life"\|fitness) +(review\|feedback\|complaint)` |
 | **全球电动车市场简报** | 汽车行业分析师 | "全球新能源汽车市场 — Tesla/BYD/NIO 动态、电池技术趋势、区域政策变化、最近 30 天、tscore ≥ 0.6" | `+(Tesla\|BYD\|NIO\|Xpeng\|Volkswagen) +(EV\|battery\|charging) +(China\|Europe\|US) -rumor` |
 
-对于所有三个场景，Agent 应用相同的四步模式：**定义查询 → `find_trusted_sources` → `search_intelligence` → 分析 / 聚合 / 趋势 → 总结**。
+对于所有三个场景，Agent 应用相同的三步模式：**定义查询 → `search_intelligence`（按 category / region / language 限定范围）→ 分析 / 聚合 / 趋势 → 总结**。
 
 ---
 
@@ -844,10 +1059,10 @@ Agent:
 |-----------|----------|
 | **可追溯的答案** | 每个项都链接到 `source_id`、`published_at` 和 `tscore` — 无幻觉 |
 | **量化的可信度** | `tscore`（0-1）由层级、类别、国家关联、宣传风险计算得出 |
-| **多维分析** | 趋势、来源聚合、供应商聚合 — 所有都是原生 MCP 工具 |
+| **多维分析** | 趋势、类别/地区聚合、供应商聚合 — 所有都是原生 MCP 工具 |
 | **实时新鲜度** | `days` 参数（1-365）允许您混合长期趋势与短期热点信号 |
 | **更少的手动工作** | 将"搜索 → 阅读 → 筛选 → 复制粘贴"替换为一个 Agent 提示 |
-| **可插拔到任何栈** | 相同的 6 个工具适用于 Claude Desktop、WorkBuddy、Trae Work、LangChain、CrewAI |
+| **可插拔到任何栈** | 相同的 60 个工具适用于 Claude Desktop、WorkBuddy、Trae Work、LangChain、CrewAI |
 
 ***
 
