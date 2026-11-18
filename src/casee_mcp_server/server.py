@@ -109,7 +109,7 @@ from .sanitize import sanitize_payload
 
 mcp = MCPServer(
     name="casee",
-    version="1.10.0",
+    version="1.11.0",
     description="CaSee enterprise competitive-intelligence retrieval and report generation - "
                 "complex retrieval, trend analysis, semantic search, "
                 "CVC creation / build tracking / inspection / insights, credits & ledger, "
@@ -586,6 +586,13 @@ def _error_payload(exc: Exception) -> dict:
                 f'the required product module "{product}". '
                 "Ask an administrator to enable it and retry."
             )
+            # [P2] 市场情报平台未订阅时给出功能等价替代指引（本地聚合降级）
+            if "market" in product.lower() or "市场情报" in product:
+                hint += (
+                    " Meanwhile, use aggregate_intelligence / analyze_trend "
+                    "to compute equivalent heat / sources / topics locally "
+                    "from retrieved intelligence items."
+                )
         for key, value in _CONTACT_DEFAULTS.items():
             details.setdefault(key, value)
     elif code == "TENANT_DISABLED":
@@ -689,6 +696,22 @@ def _validate_cvc_model_id(cvc_model_id: str) -> str:
     return ""
 
 
+def _item_dim_value(item: dict, dim: str) -> str:
+    """Read a public dimension (category/region/language) from an item.
+
+    is_storage normalizes items to ``source_{dim}`` naming
+    (``source_category`` / ``source_region`` / ``source_language``); fall back
+    to legacy ``{dim}`` and nested ``source.{dim}`` so aggregation stays
+    correct across schema generations.
+    """
+    return (
+        item.get(f"source_{dim}")
+        or item.get(dim)
+        or (item.get("source") or {}).get(dim)
+        or ""
+    )
+
+
 # ---- Tool 1: intelligence retrieval ----
 
 
@@ -719,6 +742,16 @@ def search_intelligence(
 
     Scope results with ``category`` / ``region`` / ``language`` / ``min_tscore``;
     source-level identifiers are intentionally not part of the public contract.
+
+    Citation discipline (IMPORTANT):
+    - Quote ONLY from ``title`` / ``description`` / ``abstract`` and always
+      attach the item's original ``citation.url``.
+    - ``summary`` may be AI-expanded text (``summary_origin=llm_expanded``):
+      it is for reading comprehension only and MUST NOT be quoted. Legacy
+      items without ``summary_origin`` (unknown) follow the same rule.
+    - Items whose ``content_flags`` include ``anti_bot_page`` returned an
+      anti-bot detection page instead of the real article; do not quote their
+      body text.
 
     Args:
         q: query-syntax string, e.g. +(Tesla|BYD) +(EV|battery) -rumor
@@ -797,7 +830,7 @@ def analyze_trend(
         if not pub:
             continue
         by_date[pub]["count"] += 1
-        cat = item.get("category") or item.get("source", {}).get("category", "")
+        cat = _item_dim_value(item, "category")
         if cat:
             by_date[pub]["categories"][cat] += 1
         title = item.get("title", "")
@@ -873,7 +906,7 @@ def aggregate_intelligence(
 
     groups = defaultdict(lambda: {"count": 0, "tscores": [], "titles": []})
     for item in items:
-        key = item.get(dim) or item.get("source", {}).get(dim) or "unknown"
+        key = _item_dim_value(item, dim) or "unknown"
         ts = item.get("tscore") or item.get("source", {}).get("tscore", 0)
         groups[str(key)]["count"] += 1
         groups[str(key)]["tscores"].append(float(ts) if ts else 0)
@@ -2343,6 +2376,11 @@ def retrieval_quality_guard_prompt() -> str:
 5. When results are empty or degraded, state the limitation and the affected
    query scope (category / region / language); never fill the gap with
    invented facts.
+6. Citation discipline: quote only from title / description / abstract plus
+   the item's citation.url; never quote summary — it may be AI-expanded text
+   (summary_origin=llm_expanded, or unknown on legacy items) for reading
+   comprehension only. Items flagged content_flags=["anti_bot_page"] returned
+   an anti-bot detection page instead of the real article; never quote them.
 """
 
 

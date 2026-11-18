@@ -1454,6 +1454,11 @@ def casee_get_cvc_dashboard(cvc_id: str, time_range: str = "month") -> dict:
 def casee_get_market_trends(cvc_id: str, time_range: str = "month") -> dict:
     """Read time-aggregated market trends (heat / sources / topics).
 
+    Requires the "市场情报平台" (Market Intelligence Platform) product module
+    subscription; tenants without it get 403 PRODUCT_ACCESS_DENIED — fall back
+    to aggregate_intelligence / analyze_trend to compute equivalent
+    heat / sources / topics locally from retrieved intelligence items.
+
     No LLM and no Credits.
 
     Args:

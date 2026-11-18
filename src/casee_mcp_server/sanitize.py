@@ -122,6 +122,56 @@ _NAME_FIELDS = frozenset(
 _SOURCE_OBJECT_FIELDS = frozenset({"source", "source_info", "sourceInfo"})
 _DROP_SEARCH_PARAM_KEYS = frozenset({"fallback", "engine", "source_ids", "sourceIds"})
 
+# ---- 引用规范（P1-2 内容加工污染防线 · 第 3 层）----
+# 引用必须回到 title / description / abstract + 原始 URL；
+# summary 可能是 AI 扩写文本（summary_origin=llm_expanded），禁止作为引用出处。
+_CITATION_QUOTE_FROM = ("title", "description", "abstract")
+_CITATION_NOTE_LLM = (
+    "summary 为 AI 扩写文本（summary_origin=llm_expanded），仅供阅读理解，"
+    "禁止作为引用出处；引用必须回到 description / abstract + 原始 URL。"
+)
+_CITATION_NOTE_UNKNOWN = (
+    "summary 来源未知（存量数据无 summary_origin 标记），禁止作为引用出处；"
+    "引用必须回到 description / abstract + 原始 URL。"
+)
+_CITATION_NOTE_SOURCE = (
+    "summary 为信源原生摘要；引用仍以 description / abstract + 原始 URL 为准。"
+)
+_CITATION_NOTE_ANTI_BOT = (
+    "正文命中反爬检测页特征（content_flags 含 anti_bot_page），summary 不可信，"
+    "禁止作为引用出处；引用必须回到 title / description + 原始 URL。"
+)
+
+
+def _looks_like_intelligence_item(mapping: Mapping) -> bool:
+    """情报条目字段指纹：title + (url|link) + (summary|description|abstract)。"""
+    if "title" not in mapping:
+        return False
+    if "url" not in mapping and "link" not in mapping:
+        return False
+    return any(k in mapping for k in ("summary", "description", "abstract"))
+
+
+def _build_citation(item: Mapping) -> Dict[str, Any]:
+    """按条目溯源标记生成引用指引（输入应为已投影的条目 dict）。"""
+    url = safe_public_url(item.get("link") or item.get("url") or "")
+    flags = item.get("content_flags")
+    if isinstance(flags, (list, tuple, set)) and "anti_bot_page" in flags:
+        note = _CITATION_NOTE_ANTI_BOT
+    else:
+        origin = str(item.get("summary_origin") or "unknown")
+        if origin == "llm_expanded":
+            note = _CITATION_NOTE_LLM
+        elif origin in ("", "unknown"):
+            note = _CITATION_NOTE_UNKNOWN
+        else:
+            note = _CITATION_NOTE_SOURCE
+    return {
+        "quote_from": list(_CITATION_QUOTE_FROM),
+        "url": url,
+        "summary_note": note,
+    }
+
 
 def is_google_news_url(value: Any) -> bool:
     text = str(value or "").strip()
@@ -170,7 +220,17 @@ def public_source(doc: Any) -> Dict[str, Any]:
     raw_id = doc.get("source_id") or doc.get("id") or doc.get("slug")
     if raw_id:
         out["source_id"] = opaque_source_id(raw_id)
-    for key in ("category", "region", "language", "tscore"):
+    # source_* 是 is_storage 的规范命名；旧命名保留一个版本以兼容存量载荷。
+    for key in (
+        "category",
+        "region",
+        "language",
+        "tscore",
+        "source_category",
+        "source_region",
+        "source_language",
+        "source_tscore",
+    ):
         if doc.get(key) is not None:
             out[key] = doc[key]
     return out
@@ -202,6 +262,9 @@ def sanitize_payload(value: Any) -> Any:
                 )
                 continue
             out[key] = sanitize_payload(item)
+        if _looks_like_intelligence_item(value):
+            # 引用指引（P1-2 第 3 层）：基于已投影值生成，覆盖式重建保证幂等
+            out["citation"] = _build_citation(out)
         return out
     if isinstance(value, (list, tuple)):
         return [sanitize_payload(item) for item in value]

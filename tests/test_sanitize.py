@@ -11,6 +11,7 @@ from casee_mcp_server.sanitize import (
     is_google_news_url,
     normalize_source_name,
     opaque_source_id,
+    public_source,
     safe_public_url,
     sanitize_payload,
 )
@@ -47,6 +48,25 @@ def test_opaque_source_id_stable():
     assert opaque_source_id(once) == once
 
 
+def test_public_source_projects_source_dim_naming():
+    """聚合口径修复（P1-1）：public_source 投影补 source_* 规范命名。"""
+    out = public_source({
+        "name": "Reuters",
+        "source_category": "wire",
+        "source_region": "us",
+        "source_language": "en",
+        "source_tscore": 0.8,
+    })
+    assert out["source_category"] == "wire"
+    assert out["source_region"] == "us"
+    assert out["source_language"] == "en"
+    assert out["source_tscore"] == 0.8
+    # 旧命名兼容保留一个版本
+    legacy = public_source({"name": "Reuters", "category": "blog", "tscore": 0.5})
+    assert legacy["category"] == "blog"
+    assert legacy["tscore"] == 0.5
+
+
 def test_sanitize_drops_collector_and_channel_fields():
     payload = {
         "items": [
@@ -77,6 +97,43 @@ def test_sanitize_drops_collector_and_channel_fields():
 def test_sanitize_is_idempotent():
     payload = {"source": {"name": "Google News", "url": "https://news.google.com/x"}}
     once = sanitize_payload(payload)
+    assert sanitize_payload(once) == once
+
+
+def test_citation_attached_for_intelligence_items():
+    """P1-2 第 3 层：情报条目自动携带 citation 引用指引（分支全覆盖）。"""
+    payload = {"organic_results": [
+        {"news_id": "n1", "title": "t1", "url": "https://a.com/p/1",
+         "summary": "s", "description": "d", "abstract": "a",
+         "summary_origin": "llm_expanded"},
+        {"news_id": "n2", "title": "t2",
+         "link": "https://news.google.com/rss/articles/x",
+         "resolved_url": "https://www.reuters.com/a",
+         "summary": "s2", "summary_origin": "source_abstract"},
+        {"news_id": "n3", "title": "t3", "url": "https://b.com/p/3",
+         "summary": "检测到异常访问，请完成安全验证",
+         "content_flags": ["anti_bot_page"]},
+        {"news_id": "n4", "title": "t4", "url": "https://c.com/p/4",
+         "summary": "s4"},
+    ]}
+    once = sanitize_payload(payload)
+    items = once["organic_results"]
+
+    c1 = items[0]["citation"]
+    assert c1["quote_from"] == ["title", "description", "abstract"]
+    assert c1["url"] == "https://a.com/p/1"
+    assert "AI 扩写" in c1["summary_note"] and "禁止" in c1["summary_note"]
+
+    # Google News link 清洗后引用 URL 回落到 resolved_url
+    assert items[1]["citation"]["url"] == "https://www.reuters.com/a"
+    assert "信源原生摘要" in items[1]["citation"]["summary_note"]
+
+    assert "anti_bot_page" in items[2]["citation"]["summary_note"]
+
+    # 存量数据无 summary_origin → unknown 警示
+    assert "未知" in items[3]["citation"]["summary_note"]
+
+    # citation 覆盖式重建 → 幂等
     assert sanitize_payload(once) == once
 
 

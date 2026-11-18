@@ -443,6 +443,17 @@ class TestAnalyzeTrend:
         assert result["summary"]["peak_date"] is None
 
     @patch("casee_mcp_server.server.search_advanced")
+    def test_top_categories_reads_source_category(self, mock_search):
+        """top_categories 按 source_category 取值，不再恒为空（检测问题 P1-1）。"""
+        mock_search.return_value = {"organic_results": [
+            {"title": "a", "source_category": "wire",
+             "published_at": "2026-10-01T08:00:00Z"},
+            {"title": "b", "category": "blog", "published_at": "2026-10-01T09:00:00Z"},
+        ]}
+        result = analyze_trend(q="x")
+        assert result["trend"][0]["top_categories"] == ["wire", "blog"]
+
+    @patch("casee_mcp_server.server.search_advanced")
     def test_sdk_error_passthrough(self, mock_search):
         mock_search.return_value = {"error": "CaseeError", "message": "x"}
         result = analyze_trend(q="x")
@@ -460,6 +471,31 @@ class TestAnalyzeTrend:
 
 class TestAggregateIntelligence:
     """Test aggregate_intelligence dimension grouping logic."""
+
+    @patch("casee_mcp_server.server.search_advanced")
+    def test_source_dim_naming_groups_correctly(self, mock_search):
+        """is_storage 规范命名 source_*：聚合不再落 unknown（检测问题 P1-1）。"""
+        mock_search.return_value = {"organic_results": [
+            {"title": "A", "source_category": "wire", "source_region": "us",
+             "source_language": "en", "tscore": 0.8},
+            {"title": "B", "source_category": "blog", "source_region": "us",
+             "source_language": "en", "tscore": 0.6},
+        ]}
+        result = aggregate_intelligence(q="+EV", dimension="category", days=30)
+        assert [g["key"] for g in result["groups"]] == ["wire", "blog"]
+        result = aggregate_intelligence(q="+EV", dimension="language", days=30)
+        assert result["groups"][0]["key"] == "en"
+        assert result["groups"][0]["count"] == 2
+
+    @patch("casee_mcp_server.server.search_advanced")
+    def test_legacy_and_nested_naming_fallback(self, mock_search):
+        """旧命名 category 与嵌套 source.category 兼容回退仍生效。"""
+        mock_search.return_value = {"organic_results": [
+            {"title": "A", "category": "wire"},
+            {"title": "B", "source": {"category": "blog"}},
+        ]}
+        result = aggregate_intelligence(q="x", dimension="category")
+        assert [g["key"] for g in result["groups"]] == ["wire", "blog"]
 
     @patch("casee_mcp_server.server.search_advanced")
     def test_grouping_and_sorting(self, mock_search):
