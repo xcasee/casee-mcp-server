@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.10.0-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.13.0-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -89,6 +89,60 @@ LLM AI Agent（Claude、GPT等）可以生成竞争情报报告，但其分析**
 
 ***
 
+## 🧭 Agent 快速决策树
+
+多数 Agent 会停在免费关键词检索：CaSee 更高价值的能力（CVC 建链 → 语义检索 → 洞察 → 报告）在这一步是"不可见"的。因此服务端提供两个**免费、本地**的引导工具，且每个工具都在 `_meta.tier` 中声明成本层级：
+
+| 层级 | 含义 | 工具 |
+| --- | --- | --- |
+| **T0** | 免费秒级，可直接调用 | `search_intelligence`、`casee_home_overview`、`casee_get_credits`、`casee_get_cvc_dashboard`、`casee_get_market_trends`、`list_report_templates`、`casee_list_cvc_companies` |
+| **T1** | 免费增值分析 | `analyze_trend`、`aggregate_intelligence`、`search_with_cvc`、`casee_search_charts`、`plan_report` |
+| **T2** | **先确认**：0.5–2.5 credit，8 秒 – 10 分钟 | `create_cvc_model`（默认 lite 1.0 credit ≈3-5 分钟；full 2.5 credits ≈10 分钟）、`rebuild_cvc_model`、三个 `*_insight` 工具、`generate_report` |
+| **T3** | 破坏性，必须二次确认 | `rebuild_cvc_model`、`intelligence_purge_tool`、`cvc_cache_purge_tool` |
+
+路由规则（与 `casee_guide` 返回一致）：
+
+| 如果用户…… | 则调用 |
+| --- | --- |
+| 只想看最近发生了什么 / 一次性问答 | `search_intelligence`（免费） |
+| 要持续跟踪、跨时间对比、盯竞争对手 | 建链：`search_cvc_companies` → `create_cvc_model` → `rebuild_cvc_model` |
+| 已有价值链，要按语义找证据 | `search_with_cvc`（收集）→ `semantic_search_tool`（检索） |
+| 想先看效果再决定要不要付费建链 | 打开公共只读样本 `cvc_demoevbat01`（0 credit）：`casee_get_cvc_dashboard` → 洞察；确认后再建自己的 lite 链 |
+| 判断一家公司值不值得合作 / 风险 / 差距 | `casee_get_enterprise_insight`（0.5 credit，先 `dry_run=true`） |
+| 看行业规模、驱动因素、市场机会 | 先 `casee_get_market_trends`（免费），需要解释再 `casee_get_market_insight` |
+| 想知道我们自己的客户在想什么 | `casee_get_customer_insight`（需 `cvc_id` + 对应模块权限） |
+| 要交付报告 / PPT / 图表 | `list_report_templates` → `plan_report` → `generate_report` |
+
+**服务端建议的硬性规则**
+
+1. 任何收费或超过 30 秒的操作：先说明 `cost_credits` / `eta_seconds`，等待用户确认。
+2. `company_name` 必须来自 `casee_list_cvc_companies`，不要臆造。
+3. 工具返回的 `recommendations` / `next_actions` 是下一步的权威建议，优先采用。
+4. 遇到 `PRODUCT_ACCESS_DENIED`、`SCOPE_DENIED_WRITE`（对公共 / 模板只读样本做写操作）、0 结果或语义降级，按 `alternatives` 给出替代路径，不要静默重试。
+5. CVC 构建是异步的：同一轮对话最多轮询 3 次，其余交给 `get_cvc_build_status` / 完成邮件。
+6. 建链有两档：`build_profile="lite"`（默认，1.0 credit，ETA 约 300 秒）与 `"full"`（2.5 credits，约 600 秒）；首个 CVC 免费。先用 lite，确有需要再用 `rebuild_cvc_model(build_profile="full")` 升级。
+
+两个入口工具让 Agent 无需读完 62 个工具描述也能正确路由：
+
+- `casee_guide(topic="")` —— 一屏手册：能力分层、决策树、命名对照（`价值链` / `CVC` / `价值链检索` 对应哪个工具）、免费与收费清单、首次使用清单。
+- `casee_plan_task(goal, cvc_id="", budget_credits=0, max_wait_seconds=60)` —— 把自然语言目标转成 2–3 个方案（含成本、时长、前置条件与 `ask_user` 话术）。必定包含一个 0 credit 方案。
+
+### WorkBuddy 宿主提示词（可直接复制）
+
+把下面这段加入 Agent 的系统提示词 / 人设，让它在第一轮就正确路由：
+
+```text
+你已连接 CaSee 竞争情报 MCP（casee，62 个工具）。
+1) 用户提出目标但没指定能力时，先调用 casee_plan_task(goal=<用户原话>)，并原样转述 ask_user，让用户在 A/B/C 中选。
+2) 用户问「能做什么 / 怎么用」，或用了「价值链 / CVC / 深度研判 / 行业趋势」等别名时，先调用 casee_guide() 对齐能力与工具名。
+3) 任何收费（>0 credit）或预计超过 30 秒的操作，先说明 cost_credits / eta_seconds 并等待确认。
+4) 用户想「持续跟踪 / 盯住 / 每周对比」时，不要只做一次检索：按 search_cvc_companies → create_cvc_model（默认 build_profile=lite，1.0 credit，约 3-5 分钟）→ rebuild_cvc_model 建链（完成后邮件通知）；需要全量再 rebuild 成 full（2.5 credits，约 10 分钟）。
+5) 工具返回 recommendations / alternatives 时优先采用；遇到 PRODUCT_ACCESS_DENIED 或 0 结果，按 alternatives 给出替代路径，不要静默重试。
+6) 引用情报时保留 tscore 与日期，说明数据缺口，不要编造来源。
+```
+
+***
+
 ## 🚀 快速开始
 
 使用 casee-mcp-server 有**两种方式**：
@@ -167,7 +221,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-您应该看到 **60 个工具**：6 个检索与批量检索工具（`search_intelligence` / `analyze_trend` / `aggregate_intelligence` / `semantic_search_tool` / `search_with_cvc` / `batch_search`）、7 个 CVC 管理工具、9 个报告工具（模板 / 预检 / 生成 / 轮询 / 分享 / 备份 / 重建 / health）、5 个建链工具（企业检索 / 创建 / 检索任务查询 / 创建任务查询 / 构建进度），以及 33 个 v1.7 OpenAPI 能力补齐工具（Credits / 账本 / 配额、报告下载、图表、模板 CRUD、价值链巡检与经营洞察）。
+您应该看到 **62 个工具**：6 个检索与批量检索工具（`search_intelligence` / `analyze_trend` / `aggregate_intelligence` / `semantic_search_tool` / `search_with_cvc` / `batch_search`）、7 个 CVC 管理工具、9 个报告工具（模板 / 预检 / 生成 / 轮询 / 分享 / 备份 / 重建 / health）、5 个建链工具（企业检索 / 创建 / 检索任务查询 / 创建任务查询 / 构建进度），以及 33 个 v1.7 OpenAPI 能力补齐工具（Credits / 账本 / 配额、报告下载、图表、模板 CRUD、价值链巡检与经营洞察）。
 
 #### 第 6 步：使用 Docker 运行（生产环境推荐）
 
@@ -191,7 +245,7 @@ docker compose -f docker/docker-compose.yml ps
 ```
 MCP 端点 : https://casee.me/mcp
 传输协议    : Streamable-HTTP
-服务器       : casee（60 个 MCP 工具）
+服务器       : casee（62 个 MCP 工具）
 后端      : CaSee 情报服务器（自动解析）
 ```
 
@@ -207,7 +261,7 @@ MCP 端点 : https://casee.me/mcp
 
 ## 🧰 MCP 工具
 
-服务器为 AI Agent 暴露 **60 个 MCP 工具**，覆盖检索、CVC 管理、建链与端到端报告生成。
+服务器为 AI Agent 暴露 **62 个 MCP 工具**，覆盖检索、CVC 管理、建链与端到端报告生成，并包含两个 UX 入口工具 `casee_guide` / `casee_plan_task`。
 
 ### 检索工具
 
@@ -232,6 +286,25 @@ MCP 端点 : https://casee.me/mcp
 | `intelligence_purge_tool` | 按时间截止全量清除历史情报（支持 dry-run） | `older_than_days`、`end_date`、`dry_run`、`include_mongodb` |
 | `intelligence_purge_status_tool` | 全量清除进度与残留对账 | `task_id` |
 
+> **v1.13.0（2026-11-25）：** CVC 建链档位与零成本体验 —— `create_cvc_model` /
+> `rebuild_cvc_model` 支持 `build_profile="lite"`（默认，1.0 credit，ETA 约 300 秒）
+> 或 `"full"`（2.5 credits，约 600 秒）；首个 CVC 建链免费。新增公共只读样本
+> `cvc_demoevbat01`（owner `demo_public`），0 credit 体验 dashboard / 洞察；
+> `get_cvc_build_status` 与 `casee_get_cvc_model` 增加 `visibility` /
+> `is_read_only` / `owner_tenant_id` / `access_role` / `build_profile` /
+> `eta_seconds` / `quality_status`；对公共样本写操作返回 `SCOPE_DENIED_WRITE`
+> 并给出创建自有 lite 链的 `alternatives`。洞察工具支持免费 `dry_run=true`
+> 预检；`casee_plan_task` 默认 `max_wait_seconds=600`。
+>
+> **v1.12.0（2026-11-25）：** Agent 体验层——新增 `casee_guide` 与
+> `casee_plan_task`（免费、纯本地、不调后端），让 Agent 依据用户意图路由，
+> 而不是在 62 个工具名里猜；所有工具通过 `_meta.tier`（T0–T3）声明成本层级，
+> 响应最多携带 3 条去重后的 `recommendations`（含 `tool` / `args` /
+> `cost_credits` / `eta_seconds`）；结构化错误统一带 `alternatives` 替代路径；
+> `CvcModelId` 改为工具内校验（返回结构化 `VALIDATION_ERROR`），不再用 JSON-Schema
+> `pattern` 在协议层拦截，保证非法 id 仍可被 Agent 渲染与恢复。后端新增
+> `GET /api/v1/openapi/admin/usage-summary` 与 MCP 流量的 client / session 归因字段。
+>
 > **v1.10.0（2026-11-17）：** 公网收敛加固——新增 `sanitize.py` 响应投影并统一挂在
 > 两类工具出口（`source_id` 不透明化、不下发信源目录与 `top_sources` 榜单、
 > Google News 采集通道指纹归一为 `公开媒体` / `public_news`）；锁定升级
@@ -262,7 +335,7 @@ MCP 端点 : https://casee.me/mcp
 | `list_report_jobs` | 报告任务历史（分页） | `cvc_id`、`status`、`page`、`page_size` |
 | `share_report` | 创建免密 `rs-` 分享快照 | `job_id`、`ttl_seconds` |
 | `backup_cvc_intelligence` | 查询备份源元信息（条数 / ETag），不下载正文 | `cvc_id` |
-| `rebuild_cvc_model` | 破坏性重建；默认 dry-run，`confirm=true` 才执行 | `cvc_id`、`confirm`、`backup`、`dry_run` |
+| `rebuild_cvc_model` | 破坏性重建；默认 dry-run，`confirm=true` 才执行；可用 `build_profile` 切换档位 | `cvc_id`、`confirm`、`backup`、`dry_run`、`build_profile` |
 | `casee_health` | 网关/后端版本、API Base、Credits 余额 | — |
 
 报告类工具成功返回 `{ok: true, data, meta}`，`meta` 含 `elapsed_ms`、
@@ -273,16 +346,23 @@ MCP 端点 : https://casee.me/mcp
 | 工具 | 描述 | 关键参数 |
 |------|------|----------|
 | `search_cvc_companies` | 按分析目标检索候选企业：创建异步任务并在 `wait_seconds` 内轮询；返回 products/markets/competitors 建议值，`selected=true` 表示默认全选 | `query`、`language`、`limit`、`wait_seconds` |
-| `create_cvc_model` | 通过异步任务创建价值链草稿（企业名或对象均可）；返回 `build_readiness` / `warnings` / `next_step` | `name`、`companies`、`query_topic`、`query_type`、`overwrite`、`idempotency_key`、`wait_seconds` |
+| `create_cvc_model` | 通过异步任务创建价值链草稿（企业名或对象均可）；返回 `build_readiness` / `warnings` / `build_profile` / `next_step` | `name`、`companies`、`query_topic`、`query_type`、`build_profile`（`lite`/`full`）、`overwrite`、`idempotency_key`、`wait_seconds` |
 | `get_company_search_job` | 按 `job_id` 查询企业检索任务；succeeded 时 `result` 与同步检索返回一致 | `job_id` |
 | `get_cvc_creation_job` | 按 `job_id` 查询价值链创建任务；succeeded 时 `result` 含 `cvc_id` / `build_readiness` | `job_id` |
-| `get_cvc_build_status` | 构建进度：阶段进度 / 当前步骤 / 失败归因 / 轮询建议；支持长轮询与增量日志 | `cvc_id`、`wait_seconds`、`include_logs`、`log_since` |
+| `get_cvc_build_status` | 构建进度：阶段进度 / 当前步骤 / 失败归因 / 轮询建议；同时返回 `visibility` / `is_read_only` / `owner_tenant_id` / `access_role` / `build_profile` / `eta_seconds` / `quality_status`；支持长轮询与增量日志 | `cvc_id`、`wait_seconds`、`include_logs`、`log_since` |
 
 > 建链流程：`search_cvc_companies`（把列表给用户确认，默认全选）→ `create_cvc_model`
-> → `rebuild_cvc_model(confirm=true, dry_run=false)` → 立即告知用户「约 10 分钟 + 邮件通知」，
+> （默认 `build_profile="lite"`，1.0 credit、约 3-5 分钟）→ `rebuild_cvc_model(confirm=true, dry_run=false)`
+> → 立即告知用户「lite 约 3-5 分钟（full 约 10 分钟）+ 邮件通知」，
 > 不要阻塞等待。两个创建工具内部优先调用异步任务接口；等待预算耗尽时返回 `job_id`，
 > 继续用 `get_company_search_job` / `get_cvc_creation_job` 轮询。用户回来问进度时用
 > `get_cvc_build_status` 汇报 `phases[]` 与 `failure.hint`。
+>
+> **先零成本体验，再决定付费建链：** 公共只读样本 `cvc_demoevbat01`（owner 租户
+> `demo_public`、`visibility=public`、`is_read_only=true`）对所有 API Key 开放，
+> 0 credit 即可调用 `casee_get_cvc_dashboard`、`search_with_cvc` 或洞察工具，
+> 直观看到建成后的价值链效果。对它做写操作会返回 `SCOPE_DENIED_WRITE`，
+> 并通过 `alternatives` 引导「创建自己的 lite 链」。
 
 ### OpenAPI 能力补齐工具（v1.7）
 
@@ -357,7 +437,7 @@ v1.7 起 MCP 工具集合覆盖 `/api/v1/openapi` 的全部能力，**不再需�
 
 `prompts/list` 暴露三个可复用配方：
 
-- `cvc_creation`：企业检索 → 用户确认（默认全选）→ 创建 → 构建 → 10 分钟/邮件通知
+- `cvc_creation`：企业检索 → 用户确认（默认全选）→ 创建 → lite 构建（约 3-5 分钟）/ 邮件通知
 - `report_generation`：模板 → 预检 → 生成 → 轮询 → 分享 → 质量声明
 - `retrieval_quality_guard`：语义检索退化 / 零结果时的披露规则
 
@@ -476,7 +556,7 @@ pip install casee-mcp-server
 
 #### 第 5 步：验证工具
 
-点击作曲家输入框旁边的**工具（锤子）图标**。您应该看到 `casee-intelligence` 及其 **60 个工具**（6 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、5 个建链工具）。
+点击作曲家输入框旁边的**工具（锤子）图标**。您应该看到 `casee-intelligence` 及其 **62 个工具**（6 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、5 个建链工具）。
 
 #### 第 6 步：试用
 
@@ -549,7 +629,7 @@ WorkBuddy 通过用户级配置文件注册 MCP 服务器：
 
 #### 第 4 步：验证工具
 
-打开 MCP 工具面板。您应该看到 `casee-intelligence` 及其 **60 个工具**（6 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、5 个建链工具）。
+打开 MCP 工具面板。您应该看到 `casee-intelligence` 及其 **62 个工具**（6 个检索与批量检索工具、7 个 CVC 管理工具、9 个报告工具、5 个建链工具）。
 
 #### 第 5 步：试用
 
@@ -610,7 +690,7 @@ Trae Work 通过全局配置文件 `~/.trae-cn/mcp_servers.json` 注册 MCP 服�
 
 #### 第 4 步：验证工具
 
-打开 MCP 工具面板。您应该看到 `casee-intelligence` 包含 **60 个工具**。根据需要启用。
+打开 MCP 工具面板。您应该看到 `casee-intelligence` 包含 **62 个工具**。根据需要启用。
 
 #### 第 5 步：请求情报
 
@@ -1062,7 +1142,7 @@ Agent:
 | **多维分析** | 趋势、类别/地区聚合、供应商聚合 — 所有都是原生 MCP 工具 |
 | **实时新鲜度** | `days` 参数（1-365）允许您混合长期趋势与短期热点信号 |
 | **更少的手动工作** | 将"搜索 → 阅读 → 筛选 → 复制粘贴"替换为一个 Agent 提示 |
-| **可插拔到任何栈** | 相同的 60 个工具适用于 Claude Desktop、WorkBuddy、Trae Work、LangChain、CrewAI |
+| **可插拔到任何栈** | 相同的 62 个工具适用于 Claude Desktop、WorkBuddy、Trae Work、LangChain、CrewAI |
 
 ***
 

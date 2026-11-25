@@ -40,6 +40,9 @@ EXPECTED_TOOLS = {
     "casee_get_credits",
     "casee_get_credit_ledger",
     "casee_get_quota",
+    # v1.12 UX entry guidance / decision hints
+    "casee_guide",
+    "casee_plan_task",
     # v1.7 discovery
     "casee_list_endpoints",
     "casee_get_endpoint",
@@ -93,7 +96,7 @@ class TestToolRegistration:
         extra = names - EXPECTED_TOOLS
         assert not missing, f"missing tools: {missing}"
         assert not extra, f"unexpected tools: {extra}"
-        assert len(names) == 60
+        assert len(names) == 62
 
     async def test_every_tool_has_description_and_schema(self):
         for tool in await mcp.list_tools():
@@ -111,12 +114,28 @@ class TestToolRegistration:
         assert "task_id" not in _schema(tools["intelligence_purge_status_tool"]).get("required", [])
 
     async def test_cvc_tools_validate_pattern_in_schema(self):
+        """Bad cvc ids must reach the tool body (structured error), not the protocol.
+
+        Rationale: a JSON-Schema ``pattern`` makes the MCP layer reject the call
+        with raw protocol text that agent platforms cannot render. The pattern is
+        therefore advertised in the description and enforced by the tool, which
+        returns ``{ok:false, error_code:"VALIDATION_ERROR", hint, action}``.
+        """
+        from casee_mcp_server.server import semantic_search_tool
+
         tools = {t.name: t for t in await mcp.list_tools()}
         for name in ("semantic_search_tool", "cvc_stats_tool",
                      "cvc_cache_purge_tool", "cvc_cleanup_status_tool",
                      "cvc_reindex_tool"):
             prop = _schema(tools[name])["properties"]["cvc_model_id"]
-            assert prop.get("pattern") == "^cvc_[a-z0-9]{8,32}$", name
+            assert prop.get("pattern") is None, name
+            assert "cvc_" in (prop.get("description") or ""), name
+
+        rejected = semantic_search_tool(cvc_model_id="bad id/../x", q="x")
+        assert rejected["ok"] is False
+        assert rejected["error_code"] == "VALIDATION_ERROR"
+        assert rejected["hint"] and rejected["action"]
+        assert rejected["alternatives"]
 
     async def test_report_tools_expose_required_params(self):
         tools = {t.name: t for t in await mcp.list_tools()}

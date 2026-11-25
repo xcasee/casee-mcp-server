@@ -34,6 +34,8 @@ from typing import Any
 from urllib.parse import quote
 
 from .server import (
+    _attach_recommendations,
+    _recommendation,
     _report_call,
     _report_invalid,
     get_report_client,
@@ -156,9 +158,22 @@ def _condense_bundle(bundle: dict, *, include_embed: bool, save_path: str) -> di
 # billing / quota
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(
+    title="余额与单价（免费）",
+    annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T0", "cost_credits": 0, "eta_seconds": 2},
+)
 def casee_get_credits() -> dict:
-    """Read the tenant Credits balance and per-operation unit prices.
+    """读余额、免费额度与每个操作的单价（免费、无副作用）。
+
+    USE WHEN: 任何收费操作之前；用户问“多少钱 / 我还剩多少 / 会不会扣费”。
+    DO NOT USE WHEN: 只是想看历史流水（→ casee_get_credit_ledger）。
+    PREREQUISITES: 无。COST: 0 credit。LATENCY: 约 2 秒。
+    RETURNS: balance / buckets(free, monthly, paid) / operations 单价 +
+    first_cvc_free 提示 + recommendations。
+    NEXT: 余额不足时按 recommendations 使用免费能力，或联系管理员充值。
+
+    Read the tenant Credits balance and per-operation unit prices.
 
     Call this before any charged operation (generate_report, rebuild, insights)
     to avoid a 402 mid-flight. Does not consume Credits.
@@ -169,7 +184,25 @@ def casee_get_credits() -> dict:
               available}}, as_of}, meta}
     """
     client = get_report_client()
-    return _report_call(lambda: client.request("GET", "/credits"), client)
+    result = _report_call(lambda: client.request("GET", "/credits"), client)
+    if isinstance(result, dict) and result.get("ok"):
+        data = result.get("data")
+        if isinstance(data, dict):
+            data["first_cvc_free"] = "每个租户首条 CVC 免费（lite 1.0 / full 2.5 credits 减免）"
+            data["free_capabilities"] = [
+                "search_intelligence", "analyze_trend", "aggregate_intelligence",
+                "casee_get_cvc_dashboard", "casee_get_market_trends",
+                "list_report_templates", "plan_report",
+            ]
+        _attach_recommendations(result, [
+            _recommendation(
+                "inspect_tenant_state",
+                kind="next_step", priority="low",
+                message="不确定从哪开始：先看租户总览（已有模型、构建中任务、余额）。",
+                tool="casee_home_overview", args={}, eta_seconds=2,
+            ),
+        ], into_data=True)
+    return result
 
 
 @mcp.tool()
@@ -943,25 +976,124 @@ def casee_issue_report_access_code(
 # CVC inspection / insights
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(
+    title="租户总览与续跑入口（免费）",
+    annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T0", "cost_credits": 0, "eta_seconds": 2},
+)
 def casee_home_overview(limit: int = 8) -> dict:
-    """Tenant overview: CVC counts/status, building jobs, recent reports, credits.
+    """会话第一调用：看已有价值链、构建中任务、最近报告与余额（免费）。
 
-    A good first call for a new session: shows what exists and what is running.
+    USE WHEN: 新会话开始、用户问“我之前建到哪了 / 我有什么 / 从哪继续”；
+    不确定用户是否已有 cvc_id 时先调用它，而不是猜。
+
+    DO NOT USE WHEN: 已经知道 cvc_id 和任务目标，直接调用对应工具。
+
+    PREREQUISITES: 无。COST: 0 credit。LATENCY: 约 2 秒。
+    RETURNS: {tenant, cvc:{total,by_status,building,recent}, reports, credits,
+    capabilities, pending_jobs[], onboarding[], recommendations[]}。
+    NEXT: pending_jobs 非空 → get_cvc_build_status 续跑；total=0 → 引导建链；
+    有 completed → semantic_search_tool / 洞察。
+
+    Tenant overview: CVC counts/status, building jobs, recent reports, credits.
 
     Args:
         limit: recent model/report count (1-50)
 
     Returns:
         dict: {ok, data: {tenant, cvc: {total, by_status, building, recent},
-              reports: {recent}, credits, capabilities, next}, meta}
+              reports: {recent}, credits, capabilities, next, pending_jobs,
+              onboarding, recommendations}, meta}
     """
     if not 1 <= limit <= 50:
         return _report_invalid("limit must be between 1 and 50", {"limit": limit})
     client = get_report_client()
-    return _report_call(
+    result = _report_call(
         lambda: client.request("GET", "/home/overview", params={"limit": limit}), client,
     )
+    if isinstance(result, dict) and result.get("ok"):
+        data = result.get("data")
+        if isinstance(data, dict):
+            _enrich_overview(data)
+    return result
+
+
+def _job_view(item: Any) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    cvc_id = item.get("cvc_id") or item.get("id") or item.get("model_id")
+    if not cvc_id:
+        return None
+    return {
+        "cvc_id": cvc_id,
+        "name": item.get("name") or item.get("cvc_name") or item.get("title") or "",
+        "status": item.get("status") or item.get("build_status") or "building",
+        "resume_tool": "get_cvc_build_status",
+        "resume_args": {"cvc_id": cvc_id},
+    }
+
+
+def _enrich_overview(data: dict) -> None:
+    """Add pending_jobs / onboarding / recommendations to /home/overview."""
+    cvc = data.get("cvc") if isinstance(data.get("cvc"), dict) else {}
+    building = cvc.get("building") or []
+    if isinstance(building, dict):
+        building = list(building.values())
+    pending = [v for v in (_job_view(x) for x in building or []) if v]
+    data["pending_jobs"] = pending
+
+    total = int(cvc.get("total") or 0)
+    completed = int((cvc.get("by_status") or {}).get("completed") or 0)
+    onboarding = []
+    if total == 0:
+        onboarding.append({
+            "step": "start_first_cvc",
+            "title": "从零开始：先免费检索，再决定是否建链",
+            "tools": ["search_intelligence", "casee_plan_task"],
+            "note": "第一只价值链免费；lite 约 3-5 分钟 / full 约 10 分钟，完成后邮件通知。",
+        })
+    else:
+        onboarding.append({
+            "step": "resume_existing",
+            "title": "复用已有价值链：先看总览与构建状态",
+            "tools": ["casee_get_cvc_dashboard", "get_cvc_build_status"],
+        })
+    onboarding.append({
+        "step": "pick_capability",
+        "title": "不确定下一步用哪个能力时，让 casee_plan_task 给出 2-3 个方案",
+        "tools": ["casee_plan_task", "casee_guide"],
+    })
+    data["onboarding"] = onboarding
+
+    recs = []
+    if pending:
+        recs.append(_recommendation(
+            "resume_build",
+            kind="next_step", priority="high",
+            message=f"有 {len(pending)} 个构建中任务：先查状态，不要重复建链。",
+            tool="get_cvc_build_status",
+            args={"cvc_id": pending[0]["cvc_id"]},
+            eta_seconds=2,
+        ))
+    if total == 0:
+        recs.append(_recommendation(
+            "first_cvc",
+            kind="capability", priority="medium",
+            message="还没有价值链：先免费检索确认主题，再建链以沉淀历史（首条免费）。",
+            tool="casee_plan_task",
+            args={"goal": "我想持续跟踪一个行业或公司"},
+            eta_seconds=1,
+        ))
+    elif completed:
+        recs.append(_recommendation(
+            "use_completed_cvc",
+            kind="next_step", priority="medium",
+            message="已有可用价值链：可直接做语义检索或洞察，不必重新全站检索。",
+            tool="semantic_search_tool",
+            args={"q": "<topic>", "cvc_model_id": "<cvc_id>"},
+            eta_seconds=5,
+        ))
+    _attach_recommendations(data, recs)
 
 
 @mcp.tool()
@@ -1484,7 +1616,53 @@ def casee_get_market_trends(cvc_id: str, time_range: str = "month") -> dict:
     )
 
 
-@mcp.tool()
+def _decorate_insight(result: dict, *, cvc_id: str, dry_run: bool, tool: str,
+                      **tool_args: Any) -> dict:
+    """Make cost / confirmation / next steps explicit for the three insights."""
+    if not isinstance(result, dict) or not result.get("ok"):
+        return result
+    data = result.get("data")
+    if isinstance(data, dict):
+        data["cost_note"] = {
+            "dry_run": dry_run,
+            "charged_credits": 0 if dry_run else 0.5,
+            "eta_seconds": 0 if dry_run else 20,
+        }
+        if dry_run:
+            data["confirm_prompt"] = (
+                "预检完成，未扣费。是否花费 0.5 credit 生成洞察？"
+                "（若该 cvc_id 已有未过期缓存，会直接返回，不扣费）"
+            )
+    recs = []
+    if dry_run:
+        recs.append(_recommendation(
+            "confirm_insight",
+            kind="next_step", priority="high",
+            message=("预检未扣费。向用户确认后再以 dry_run=false 生成"
+                     "（0.5 credit，8-20 秒）。"),
+            tool=tool,
+            args={"cvc_id": cvc_id, "dry_run": False, **tool_args},
+            cost_credits=0.5, eta_seconds=20, requires_user_confirm=True,
+            show_once_per_session=False,
+        ))
+    else:
+        recs.append(_recommendation(
+            "deliver_report",
+            kind="next_step", priority="medium",
+            message="洞察已生成：可选择报告模板并预检（免费），再生成报告（1 credit）。",
+            tool="list_report_templates", args={}, eta_seconds=2,
+        ))
+    _attach_recommendations(data if isinstance(data, dict) else result, recs)
+    return result
+
+
+@mcp.tool(
+    title="企业洞察（0.5 credit，先 dry_run）",
+    annotations={"readOnlyHint": False, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T2", "cost_credits": 0.5, "eta_seconds": 20,
+          "requires_user_confirm": True, "dry_run_default": True,
+          "requires": "insight:generate + product module"},
+)
 def casee_get_enterprise_insight(
     cvc_id: str,
     company_name: str,
@@ -1492,7 +1670,22 @@ def casee_get_enterprise_insight(
     dry_run: bool = True,
     max_age_days: int = 7,
 ) -> dict:
-    """Generate/read an enterprise insight (profile, gaps, opportunities, risks).
+    """企业洞察：判断一家公司值不值得合作、差距与风险（0.5 credit，先 dry_run）。
+
+    USE WHEN: 用户已有 cvc_id 与 company_name（来自 casee_list_cvc_companies），
+    要判断「这家公司靠不靠谱 / 风险在哪 / 和我们差距多大 / 值不值得合作」。
+    DO NOT USE WHEN:
+    - 还没有 cvc_id → 先 search_cvc_companies → create_cvc_model（约 10 分钟）。
+    - 只想看最近动态 → search_intelligence（免费）。
+    - 想看行业驱动因素 → casee_get_market_insight。
+    PREREQUISITES: cvc_id 已 completed；租户已开通 insight 模块并有余量。
+    COST: 0.5 credit/次（dry_run=true 不扣费）。LATENCY: 约 20 秒。
+    RETURNS: profile / strengths / gaps / opportunities / risks / evidence +
+    cost_note（dry_run, charged_credits）+ confirm_prompt + recommendations。
+    NEXT: 先用 dry_run=true 预检并把 confirm_prompt 转述给用户；用户同意后再以
+    dry_run=false 生成；需要交付时用 list_report_templates → generate_report。
+
+    Generate/read an enterprise insight (profile, gaps, opportunities, risks).
 
     Costs 0.5 Credits when generated. ``dry_run=true`` (default) only probes the
     cache and balance without charging; set dry_run=false only after the user
@@ -1524,16 +1717,26 @@ def casee_get_enterprise_insight(
         "dry_run": dry_run,
         "max_age_days": max_age_days,
     }
-    return _report_call(
+    result = _report_call(
         lambda: client.request(
             "GET", f"/cvc-models/{quote(cvc_id, safe='')}/enterprise-insight",
             params=params,
         ),
         client,
     )
+    return _decorate_insight(
+        result, cvc_id=cvc_id, dry_run=dry_run,
+        tool="casee_get_enterprise_insight", company_name=company_name,
+    )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="市场洞察（0.5 credit，先 dry_run）",
+    annotations={"readOnlyHint": False, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T2", "cost_credits": 0.5, "eta_seconds": 20,
+          "requires_user_confirm": True, "dry_run_default": True,
+          "requires": "insight:generate + product module"},
+)
 def casee_get_market_insight(
     cvc_id: str,
     market_name: str,
@@ -1571,16 +1774,26 @@ def casee_get_market_insight(
         "dry_run": dry_run,
         "max_age_days": max_age_days,
     }
-    return _report_call(
+    result = _report_call(
         lambda: client.request(
             "GET", f"/cvc-models/{quote(cvc_id, safe='')}/market-insight",
             params=params,
         ),
         client,
     )
+    return _decorate_insight(
+        result, cvc_id=cvc_id, dry_run=dry_run,
+        tool="casee_get_market_insight", market_name=market_name,
+    )
 
 
-@mcp.tool()
+@mcp.tool(
+    title="客户洞察（0.5 credit，先 dry_run）",
+    annotations={"readOnlyHint": False, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T2", "cost_credits": 0.5, "eta_seconds": 20,
+          "requires_user_confirm": True, "dry_run_default": True,
+          "requires": "insight:generate + product module"},
+)
 def casee_get_customer_insight(
     cvc_id: str,
     customer_name: str,
@@ -1618,10 +1831,14 @@ def casee_get_customer_insight(
         "dry_run": dry_run,
         "max_age_days": max_age_days,
     }
-    return _report_call(
+    result = _report_call(
         lambda: client.request(
             "GET", f"/cvc-models/{quote(cvc_id, safe='')}/customer-insight",
             params=params,
         ),
         client,
+    )
+    return _decorate_insight(
+        result, cvc_id=cvc_id, dry_run=dry_run,
+        tool="casee_get_customer_insight", customer_name=customer_name,
     )

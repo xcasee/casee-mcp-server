@@ -528,7 +528,9 @@ class TestAggregateIntelligence:
 
     def test_invalid_dimension_rejected(self):
         result = aggregate_intelligence(q="x", dimension="source")
-        assert result["error"] == "InvalidDimension"
+        assert result["ok"] is False
+        assert result["error_code"] == "VALIDATION_ERROR"
+        assert result["details"].get("dimension") == "source"
 
     @patch("casee_mcp_server.server.search_advanced")
     def test_sdk_error_passthrough(self, mock_search):

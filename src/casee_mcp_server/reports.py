@@ -33,7 +33,8 @@ from casee.exceptions import (
     TimeoutError as CaseeTimeoutError,
 )
 
-from .request_context import get_caller_api_key
+from .request_context import attribution_headers, get_caller_api_key
+from .version import __version__ as _SERVER_VERSION
 
 _OPENAPI_SUFFIX = "/api/v1/openapi"
 _DEFAULT_TIMEOUT = 120.0
@@ -189,6 +190,7 @@ class ReportClient:
         headers = {
             "Accept": "application/json",
             "User-Agent": "casee-mcp-server",
+            **attribution_headers(default_version=_SERVER_VERSION),
         }
         if self.api_key:
             headers["X-API-Key"] = self.api_key
