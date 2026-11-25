@@ -341,6 +341,37 @@ class TestUpstreamVerification:
             ])
             assert await mw._verify_planes("k") == "plane_mismatch"
 
+    async def test_eirs_db_unavailable_is_transient(self):
+        """A key-store outage must not be reported as a plane mismatch."""
+        mw = self._mw()
+        with patch("casee_mcp_server.http_auth.httpx.AsyncClient") as cls:
+            cls.return_value.get = AsyncMock(side_effect=[
+                FakeResponse(200),
+                FakeResponse(401, {"code": 40102,
+                                   "details": {"reason": "db_unavailable"}}),
+            ])
+            assert await mw._verify_planes("k") is None
+
+    async def test_eirs_401_without_code_is_transient(self):
+        """401/403 without the EIRS body comes from a proxy, not the key store."""
+        mw = self._mw()
+        with patch("casee_mcp_server.http_auth.httpx.AsyncClient") as cls:
+            cls.return_value.get = AsyncMock(side_effect=[
+                FakeResponse(200),
+                FakeResponse(401),
+            ])
+            assert await mw._verify_planes("k") is None
+
+    async def test_eirs_503_is_transient(self):
+        mw = self._mw()
+        with patch("casee_mcp_server.http_auth.httpx.AsyncClient") as cls:
+            cls.return_value.get = AsyncMock(side_effect=[
+                FakeResponse(200),
+                FakeResponse(503, {"code": 50301,
+                                   "details": {"reason": "db_unavailable"}}),
+            ])
+            assert await mw._verify_planes("k") is None
+
     async def test_eirs_expired_or_disabled_is_plain_invalid(self):
         for code in (40103, 40302):
             mw = self._mw()
@@ -407,12 +438,14 @@ class TestVerifyCache:
         await mw._verify_cached("k")
         assert mw._verify_planes.await_count == 2
 
-    async def test_plane_mismatch_is_cached(self):
+    async def test_plane_mismatch_is_not_cached(self):
+        """A negative EIRS lookup may be a transient DB failure: always re-probe."""
         mw, _ = make_mw()
         mw._verify_planes = AsyncMock(return_value="plane_mismatch")
         assert await mw._verify_cached("k") == "plane_mismatch"
         assert await mw._verify_cached("k") == "plane_mismatch"
-        assert mw._verify_planes.await_count == 1
+        assert mw._verify_planes.await_count == 2
+        assert "k" not in mw._cache
 
     async def test_unreachable_is_not_cached(self):
         mw, _ = make_mw()

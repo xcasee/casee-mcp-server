@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.13.0-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.13.1-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -295,6 +295,14 @@ The server exposes **62 MCP Tools** for AI Agents: retrieval, CVC administration
 > instead of by a JSON-Schema `pattern`, so bad ids stay renderable for the
 > agent. Backend adds `GET /api/v1/openapi/admin/usage-summary` and
 > client / session attribution for MCP traffic.
+>
+> **v1.13.1 (2026-11-25):** auth-plane hardening — `AUTH_KEY_PLANE_MISMATCH` is
+> now only returned when the EIRS OpenAPI probe explicitly answers `40102`; a
+> transient key-store outage (`db_unavailable`) or a proxy 401/403 without the
+> EIRS error body is treated as retryable `503 UPSTREAM_UNAVAILABLE` instead of
+> accusing the caller of using a key from the wrong plane. Plane-mismatch
+> verdicts are no longer negatively cached, so one bad lookup can no longer stick
+> for the whole TTL, and the default negative-cache TTL drops from 60 s to 15 s.
 >
 > **v1.13.0 (2026-11-25):** CVC build profiles & zero-cost trial — `create_cvc_model`
 > and `rebuild_cvc_model` accept `build_profile="lite"` (default, 1.0 credit,

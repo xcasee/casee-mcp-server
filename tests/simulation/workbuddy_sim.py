@@ -183,8 +183,8 @@ async def scenario_protocol(session: ClientSession, report: Report) -> None:
     server_info = session.server_info
     report.check(area, "server name", getattr(server_info, "name", "") == "casee",
                  str(server_info))
-    report.check(area, "server version 1.13.0",
-                 getattr(server_info, "version", "") == "1.13.0",
+    report.check(area, "server version 1.13.1",
+                 getattr(server_info, "version", "") == "1.13.1",
                  str(getattr(server_info, "version", "")))
 
     tools = (await session.list_tools()).tools

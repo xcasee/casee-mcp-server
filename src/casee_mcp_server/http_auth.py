@@ -46,6 +46,11 @@ _VERDICT_PLANE_MISMATCH = "plane_mismatch"
 # means the key is valid for is-server but was never registered in EIRS.
 _EIRS_CODE_KEY_NOT_FOUND = 40102
 
+# EIRS ``details.reason`` for a transient key-store outage. Such a response must
+# never be treated as "key absent from EIRS" (plane mismatch): the record may
+# well exist and only the lookup failed.
+_EIRS_REASON_DB_UNAVAILABLE = "db_unavailable"
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     return os.environ.get(name, str(default)).strip().lower() in (
@@ -68,7 +73,7 @@ class ApiKeyAuthMiddleware:
         openapi_base_url: str = "",
         static_allowlist: frozenset | None = None,
         cache_ttl: float = 300.0,
-        neg_cache_ttl: float = 60.0,
+        neg_cache_ttl: float = 15.0,
         verify_timeout: float = 5.0,
     ) -> None:
         self.app = app
@@ -219,7 +224,10 @@ class ApiKeyAuthMiddleware:
             if now - ts < ttl:
                 return verdict
         verdict = await self._verify_planes(key)
-        if verdict is not None:
+        # ``plane_mismatch`` is never cached: it depends on a negative lookup in
+        # the EIRS store, which can be wrong during a transient DB outage and
+        # would then stick for the whole negative TTL.
+        if verdict is not None and verdict != _VERDICT_PLANE_MISMATCH:
             self._cache[key] = (verdict, now)
             if len(self._cache) > 1024:
                 # Basic bound: drop everything older than 15 min.
@@ -254,10 +262,23 @@ class ApiKeyAuthMiddleware:
         if eirs_result["verdict"] == _VERDICT_OK:
             return _VERDICT_OK
         if eirs_result["verdict"] == _VERDICT_INVALID:
-            # 40102 means the key is simply absent from the EIRS store; other
-            # auth errors (expired / disabled / scope) are plain invalid keys.
-            if eirs_result["code"] in (None, _EIRS_CODE_KEY_NOT_FOUND):
+            # A transient EIRS key-store outage (``db_unavailable``) says nothing
+            # about the key itself: retry instead of accusing the caller of using
+            # a key from the wrong plane.
+            if eirs_result.get("reason") == _EIRS_REASON_DB_UNAVAILABLE:
+                logger.warning(
+                    "eirs-openapi key store unavailable; retry as transient"
+                )
+                return None
+            # Only an explicit 40102 proves the key is absent from the EIRS
+            # store; other auth codes (40103 expired / 40302 disabled) are
+            # plain invalid keys.
+            if eirs_result["code"] == _EIRS_CODE_KEY_NOT_FOUND:
                 return _VERDICT_PLANE_MISMATCH
+            # A 401/403 without the EIRS error body usually comes from an
+            # intermediate proxy/Gateway, not from the key store: retry.
+            if eirs_result["code"] is None:
+                return None
             return _VERDICT_INVALID
         return None
 
@@ -269,12 +290,13 @@ class ApiKeyAuthMiddleware:
             resp = await self._client.get(url, headers={"X-API-Key": key})
         except httpx.HTTPError as exc:
             logger.warning("%s key verify error: %s", label, exc)
-            return {"verdict": None, "code": None}
+            return {"verdict": None, "code": None, "reason": None}
 
         if resp.status_code == 200:
-            return {"verdict": _VERDICT_OK, "code": None}
+            return {"verdict": _VERDICT_OK, "code": None, "reason": None}
         if resp.status_code in (401, 403):
             code = None
+            reason = None
             try:
                 body = resp.json()
             except ValueError:
@@ -283,14 +305,19 @@ class ApiKeyAuthMiddleware:
                 raw_code = body.get("code")
                 if isinstance(raw_code, int):
                     code = raw_code
-            logger.info("%s rejected key status=%s code=%s",
-                        label, resp.status_code, code)
-            return {"verdict": _VERDICT_INVALID, "code": code}
+                details = body.get("details")
+                if isinstance(details, dict) and isinstance(
+                    details.get("reason"), str
+                ):
+                    reason = details["reason"]
+            logger.info("%s rejected key status=%s code=%s reason=%s",
+                        label, resp.status_code, code, reason)
+            return {"verdict": _VERDICT_INVALID, "code": code, "reason": reason}
 
         logger.warning(
             "%s key verify unexpected status=%s", label, resp.status_code
         )
-        return {"verdict": None, "code": None}
+        return {"verdict": None, "code": None, "reason": None}
 
     # ------------------------------------------------------------- helpers
     @staticmethod
@@ -378,7 +405,7 @@ def build_authenticated_app(mcp_server, *, path: str, json_response: bool = Fals
         openapi_base_url=openapi_base,
         static_allowlist=allowlist,
         cache_ttl=float(os.environ.get("MCP_AUTH_CACHE_TTL", "300")),
-        neg_cache_ttl=float(os.environ.get("MCP_AUTH_NEG_CACHE_TTL", "60")),
+        neg_cache_ttl=float(os.environ.get("MCP_AUTH_NEG_CACHE_TTL", "15")),
         verify_timeout=float(os.environ.get("MCP_AUTH_VERIFY_TIMEOUT", "5")),
     )
     logger.info(

@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.13.0-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.13.1-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -286,6 +286,13 @@ MCP 端点 : https://casee.me/mcp
 | `intelligence_purge_tool` | 按时间截止全量清除历史情报（支持 dry-run） | `older_than_days`、`end_date`、`dry_run`、`include_mongodb` |
 | `intelligence_purge_status_tool` | 全量清除进度与残留对账 | `task_id` |
 
+> **v1.13.1（2026-11-25）：** 鉴权平面加固 —— 只有 EIRS OpenAPI 探测明确返回
+> `40102` 时才判定 `AUTH_KEY_PLANE_MISMATCH`；密钥库瞬态不可用
+> （`db_unavailable`）或前置代理返回无 EIRS 错误体的 401/403 时，统一按可重试的
+> `503 UPSTREAM_UNAVAILABLE` 处理，不再误判为"密钥平面不匹配"。`plane_mismatch`
+> 结论不再写负缓存，单次误判不会在整个 TTL 内持续放大；负缓存默认 TTL 由 60 秒
+> 降为 15 秒。
+>
 > **v1.13.0（2026-11-25）：** CVC 建链档位与零成本体验 —— `create_cvc_model` /
 > `rebuild_cvc_model` 支持 `build_profile="lite"`（默认，1.0 credit，ETA 约 300 秒）
 > 或 `"full"`（2.5 credits，约 600 秒）；首个 CVC 建链免费。新增公共只读样本
