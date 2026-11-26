@@ -320,7 +320,7 @@ class TestUpstreamVerification:
             urls = [c.args[0] for c in cls.return_value.get.await_args_list]
             assert urls == [
                 "http://upstream:8000/v1/stats",
-                "http://eirs:8009/api/v1/openapi/credits",
+                "http://eirs:8009/api/v1/openapi/keys/whoami",
             ]
 
     async def test_is_401_means_invalid_and_skips_eirs(self):
@@ -340,37 +340,6 @@ class TestUpstreamVerification:
                                    "details": {"reason": "not_found"}}),
             ])
             assert await mw._verify_planes("k") == "plane_mismatch"
-
-    async def test_eirs_db_unavailable_is_transient(self):
-        """A key-store outage must not be reported as a plane mismatch."""
-        mw = self._mw()
-        with patch("casee_mcp_server.http_auth.httpx.AsyncClient") as cls:
-            cls.return_value.get = AsyncMock(side_effect=[
-                FakeResponse(200),
-                FakeResponse(401, {"code": 40102,
-                                   "details": {"reason": "db_unavailable"}}),
-            ])
-            assert await mw._verify_planes("k") is None
-
-    async def test_eirs_401_without_code_is_transient(self):
-        """401/403 without the EIRS body comes from a proxy, not the key store."""
-        mw = self._mw()
-        with patch("casee_mcp_server.http_auth.httpx.AsyncClient") as cls:
-            cls.return_value.get = AsyncMock(side_effect=[
-                FakeResponse(200),
-                FakeResponse(401),
-            ])
-            assert await mw._verify_planes("k") is None
-
-    async def test_eirs_503_is_transient(self):
-        mw = self._mw()
-        with patch("casee_mcp_server.http_auth.httpx.AsyncClient") as cls:
-            cls.return_value.get = AsyncMock(side_effect=[
-                FakeResponse(200),
-                FakeResponse(503, {"code": 50301,
-                                   "details": {"reason": "db_unavailable"}}),
-            ])
-            assert await mw._verify_planes("k") is None
 
     async def test_eirs_expired_or_disabled_is_plain_invalid(self):
         for code in (40103, 40302):
@@ -438,14 +407,12 @@ class TestVerifyCache:
         await mw._verify_cached("k")
         assert mw._verify_planes.await_count == 2
 
-    async def test_plane_mismatch_is_not_cached(self):
-        """A negative EIRS lookup may be a transient DB failure: always re-probe."""
+    async def test_plane_mismatch_is_cached(self):
         mw, _ = make_mw()
         mw._verify_planes = AsyncMock(return_value="plane_mismatch")
         assert await mw._verify_cached("k") == "plane_mismatch"
         assert await mw._verify_cached("k") == "plane_mismatch"
-        assert mw._verify_planes.await_count == 2
-        assert "k" not in mw._cache
+        assert mw._verify_planes.await_count == 1
 
     async def test_unreachable_is_not_cached(self):
         mw, _ = make_mw()
@@ -462,10 +429,17 @@ class TestBuildAuthenticatedApp:
     """build_authenticated_app env-driven wiring."""
 
     async def test_auth_disabled_returns_raw_app(self, monkeypatch):
-        monkeypatch.delenv("MCP_REQUIRE_API_KEY", raising=False)
+        monkeypatch.setenv("MCP_REQUIRE_API_KEY", "false")
         from casee_mcp_server.server import mcp as mcp_server
         app = build_authenticated_app(mcp_server, path="/mcp")
         assert not isinstance(app, ApiKeyAuthMiddleware)
+
+    async def test_auth_enabled_by_default(self, monkeypatch):
+        """托管部署默认开启鉴权，避免租户归属塌缩到部署 Key。"""
+        monkeypatch.delenv("MCP_REQUIRE_API_KEY", raising=False)
+        from casee_mcp_server.server import mcp as mcp_server
+        app = build_authenticated_app(mcp_server, path="/mcp")
+        assert isinstance(app, ApiKeyAuthMiddleware)
 
     async def test_auth_enabled_wraps_middleware(self, monkeypatch):
         monkeypatch.setenv("MCP_REQUIRE_API_KEY", "true")

@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   casee-mcp:
-    image: casee-mcp-server:1.13.1
+    image: casee-mcp-server:1.14.0
     container_name: casee-mcp-server
     ports:
       # 仅绑定回环 8101，由 nginx stream 网关在 8100 对外提供双协议服务：
@@ -11,6 +11,11 @@ services:
       - "127.0.0.1:8101:8100"
     env_file:
       - ../.env
+    environment:
+      # 托管部署：显式开启租户级 Key 校验，避免所有租户归属塌缩到部署 Key
+      - MCP_REQUIRE_API_KEY=true
+      # 默认 core 分层（18 个主链路工具），需要完整目录改为 full
+      - MCP_TOOL_PROFILE=${MCP_TOOL_PROFILE:-core}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "from casee import __version__; print('OK')"]

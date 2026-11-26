@@ -35,11 +35,14 @@ from urllib.parse import quote
 
 from .server import (
     _attach_recommendations,
+    _CONFIRM_TOKEN_TTL_SECONDS,
     _recommendation,
     _report_call,
     _report_invalid,
     get_report_client,
+    issue_confirm_token,
     mcp,
+    verify_confirm_token,
 )
 
 _TIME_RANGES = ("week", "month", "quarter")
@@ -184,7 +187,13 @@ def casee_get_credits() -> dict:
               available}}, as_of}, meta}
     """
     client = get_report_client()
-    result = _report_call(lambda: client.request("GET", "/credits"), client)
+    result = _report_call(
+        lambda: client.request(
+            "GET", "/credits",
+            extra_headers={"X-Casee-Call-Purpose": "balance_precheck"},
+        ),
+        client,
+    )
     if isinstance(result, dict) and result.get("ok"):
         data = result.get("data")
         if isinstance(data, dict):
@@ -1553,7 +1562,10 @@ def casee_export_intelligence(
     return _report_call(call, client)
 
 
-@mcp.tool()
+@mcp.tool(
+    meta={"tier": "T0", "cost_credits": 0, "eta_seconds": 3,
+          "requires": "completed CVC", "next": "semantic_search_tool"},
+)
 def casee_get_cvc_dashboard(cvc_id: str, time_range: str = "month") -> dict:
     """Read the CVC business dashboard (volume / sentiment / share of voice).
 
@@ -1617,11 +1629,17 @@ def casee_get_market_trends(cvc_id: str, time_range: str = "month") -> dict:
 
 
 def _decorate_insight(result: dict, *, cvc_id: str, dry_run: bool, tool: str,
-                      **tool_args: Any) -> dict:
-    """Make cost / confirmation / next steps explicit for the three insights."""
+                      confirmed: bool = False, **tool_args: Any) -> dict:
+    """Make cost / confirmation / next steps explicit for the three insights.
+
+    ``dry_run`` 结果会带一个签名 ``confirm_token``：用户只需确认一次，之后把
+    ``confirm_token`` 原样传入 ``dry_run=False`` 的调用即可直接执行，不必再走
+    一轮「预检 → 再确认」。
+    """
     if not isinstance(result, dict) or not result.get("ok"):
         return result
     data = result.get("data")
+    confirm_args = {"cvc_id": cvc_id, **tool_args}
     if isinstance(data, dict):
         data["cost_note"] = {
             "dry_run": dry_run,
@@ -1629,19 +1647,34 @@ def _decorate_insight(result: dict, *, cvc_id: str, dry_run: bool, tool: str,
             "eta_seconds": 0 if dry_run else 20,
         }
         if dry_run:
+            token = issue_confirm_token(tool, confirm_args)
+            data["confirm_token"] = token
+            data["confirm_token_expires_in"] = _CONFIRM_TOKEN_TTL_SECONDS
+            # 可直接执行的调用：客户端把用户的一次确认转成这一次带令牌的调用。
+            data["confirm_call"] = {
+                "tool": tool,
+                "args": {**confirm_args, "dry_run": False, "confirm_token": token},
+                "cost_credits": 0.5,
+                "eta_seconds": 20,
+            }
             data["confirm_prompt"] = (
                 "预检完成，未扣费。是否花费 0.5 credit 生成洞察？"
-                "（若该 cvc_id 已有未过期缓存，会直接返回，不扣费）"
+                "（确认后请直接用 confirm_call 执行，confirm_token 在 "
+                f"{_CONFIRM_TOKEN_TTL_SECONDS // 60} 分钟内有效，无需再次预检）"
             )
+        elif confirmed:
+            data["confirmed"] = True
+            data["cost_note"]["confirmation"] = "confirm_token"
     recs = []
     if dry_run:
         recs.append(_recommendation(
             "confirm_insight",
             kind="next_step", priority="high",
-            message=("预检未扣费。向用户确认后再以 dry_run=false 生成"
-                     "（0.5 credit，8-20 秒）。"),
+            message=("预检未扣费。用户确认后直接执行 confirm_call（0.5 credit，"
+                     "8-20 秒）；confirm_token 已绑定本次参数，无需重复预检/确认。"),
             tool=tool,
-            args={"cvc_id": cvc_id, "dry_run": False, **tool_args},
+            args={**confirm_args, "dry_run": False,
+                  "confirm_token": "<confirm_token>"},
             cost_credits=0.5, eta_seconds=20, requires_user_confirm=True,
             show_once_per_session=False,
         ))
@@ -1669,6 +1702,7 @@ def casee_get_enterprise_insight(
     force_refresh: bool = False,
     dry_run: bool = True,
     max_age_days: int = 7,
+    confirm_token: str = "",
 ) -> dict:
     """企业洞察：判断一家公司值不值得合作、差距与风险（0.5 credit，先 dry_run）。
 
@@ -1697,6 +1731,8 @@ def casee_get_enterprise_insight(
         force_refresh: bypass cache (charges again)
         dry_run: probe only, no generation and no charge
         max_age_days: cache freshness window (1-90)
+        confirm_token: ``dry_run`` 返回的一次性令牌；传入后视为用户已确认，
+            直接执行（免重复预检/确认），需与预检时参数一致且在有效期内
 
     Returns:
         dict: {ok, data: {profile, strengths, gaps, opportunities, risks,
@@ -1710,6 +1746,11 @@ def casee_get_enterprise_insight(
         return _report_invalid(
             "max_age_days must be between 1 and 90", {"max_age_days": max_age_days},
         )
+    confirmed = (not dry_run) and verify_confirm_token(
+        confirm_token, "casee_get_enterprise_insight",
+        {"cvc_id": cvc_id, "company_name": company_name,
+         "force_refresh": force_refresh, "max_age_days": max_age_days},
+    )
     client = get_report_client()
     params = {
         "company_name": company_name,
@@ -1725,8 +1766,9 @@ def casee_get_enterprise_insight(
         client,
     )
     return _decorate_insight(
-        result, cvc_id=cvc_id, dry_run=dry_run,
+        result, cvc_id=cvc_id, dry_run=dry_run, confirmed=confirmed,
         tool="casee_get_enterprise_insight", company_name=company_name,
+        force_refresh=force_refresh, max_age_days=max_age_days,
     )
 
 
@@ -1743,6 +1785,7 @@ def casee_get_market_insight(
     force_refresh: bool = False,
     dry_run: bool = True,
     max_age_days: int = 7,
+    confirm_token: str = "",
 ) -> dict:
     """Generate/read a market insight (size, growth, landscape, drivers, risks).
 
@@ -1754,6 +1797,7 @@ def casee_get_market_insight(
         force_refresh: bypass cache
         dry_run: probe only, no charge
         max_age_days: cache freshness window (1-90)
+        confirm_token: ``dry_run`` 返回的一次性令牌，传入后直接执行
 
     Returns:
         dict: {ok, data: {market, size, growth, landscape, drivers, risks},
@@ -1767,6 +1811,11 @@ def casee_get_market_insight(
         return _report_invalid(
             "max_age_days must be between 1 and 90", {"max_age_days": max_age_days},
         )
+    confirmed = (not dry_run) and verify_confirm_token(
+        confirm_token, "casee_get_market_insight",
+        {"cvc_id": cvc_id, "market_name": market_name,
+         "force_refresh": force_refresh, "max_age_days": max_age_days},
+    )
     client = get_report_client()
     params = {
         "market_name": market_name,
@@ -1782,8 +1831,9 @@ def casee_get_market_insight(
         client,
     )
     return _decorate_insight(
-        result, cvc_id=cvc_id, dry_run=dry_run,
+        result, cvc_id=cvc_id, dry_run=dry_run, confirmed=confirmed,
         tool="casee_get_market_insight", market_name=market_name,
+        force_refresh=force_refresh, max_age_days=max_age_days,
     )
 
 
@@ -1800,6 +1850,7 @@ def casee_get_customer_insight(
     force_refresh: bool = False,
     dry_run: bool = True,
     max_age_days: int = 7,
+    confirm_token: str = "",
 ) -> dict:
     """Generate/read a customer insight (preferences, demand, decision chain).
 
@@ -1811,6 +1862,7 @@ def casee_get_customer_insight(
         force_refresh: bypass cache
         dry_run: probe only, no charge
         max_age_days: cache freshness window (1-90)
+        confirm_token: ``dry_run`` 返回的一次性令牌，传入后直接执行
 
     Returns:
         dict: {ok, data: {customer, preferences, demand_signals,
@@ -1824,6 +1876,11 @@ def casee_get_customer_insight(
         return _report_invalid(
             "max_age_days must be between 1 and 90", {"max_age_days": max_age_days},
         )
+    confirmed = (not dry_run) and verify_confirm_token(
+        confirm_token, "casee_get_customer_insight",
+        {"cvc_id": cvc_id, "customer_name": customer_name,
+         "force_refresh": force_refresh, "max_age_days": max_age_days},
+    )
     client = get_report_client()
     params = {
         "customer_name": customer_name,
@@ -1839,6 +1896,369 @@ def casee_get_customer_insight(
         client,
     )
     return _decorate_insight(
-        result, cvc_id=cvc_id, dry_run=dry_run,
+        result, cvc_id=cvc_id, dry_run=dry_run, confirmed=confirmed,
         tool="casee_get_customer_insight", customer_name=customer_name,
+        force_refresh=force_refresh, max_age_days=max_age_days,
     )
+
+
+# ---------------------------------------------------------------------------
+# 行业模版建链（第三种创建方式：浏览模版 → 授权实例化 → 共享构建）
+# ---------------------------------------------------------------------------
+# 与门户「模版库 → 使用模版」同口径：模版由专家预置企业清单与检索口径，
+# 实例全租户共享，无需重复构建。工具命名与 eirs/api_meta/endpoint_meta.py 的
+# mcp.tool 声明保持一致，避免开放 API 与 MCP 两套叫法。
+_TEMPLATE_BUILD_CREDITS = 2.5
+_TEMPLATE_BUILD_ETA_SECONDS = 600
+_TEMPLATE_PROVISION_ETA_SECONDS = 90
+
+
+def _template_summary(data: dict) -> dict:
+    """模版详情裁剪为预览结构：保留选型所需字段，去掉属主等内部字段。"""
+    if not isinstance(data, dict):
+        return {}
+    keys = (
+        "id", "name", "summary", "description", "industry", "scenario",
+        "companies_preview", "provision_state", "granted", "grants_count",
+        "status", "build_profile",
+    )
+    return {key: data.get(key) for key in keys if key in data}
+
+
+@mcp.tool(
+    title="浏览行业模版（免费，第三种建链方式）",
+    annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T1", "cost_credits": 0, "eta_seconds": 2,
+          "next": "get_cvc_template / create_cvc_from_template"},
+)
+def list_cvc_templates(
+    industry: str = "",
+    scenario: str = "",
+    q: str = "",
+    limit: int = 20,
+    offset: int = 0,
+) -> dict:
+    """浏览行业模版库（免费）：专家预置企业清单 + 检索口径，一键实例化建链。
+
+    USE WHEN:
+    - 用户不确定该搜哪些公司/该用什么行业口径；
+    - 用户说「有没有现成的行业分析 / 模版 / 案例」；
+    - 想复用专家配置快速得到可用的价值链（比从零检索更快）。
+
+    DO NOT USE WHEN: 用户已明确给出公司清单 → search_cvc_companies → create_cvc_model。
+
+    COST: 0 credit。LATENCY: 约 1-2 秒。
+    NEXT: 选定 id 后先 get_cvc_template 看企业清单，再 create_cvc_from_template
+    （2.5 credits，租户首个 CVC 免费；老用户已实例化的模版不重复扣费）。
+
+    Args:
+        industry: industry filter, e.g. 新能源 / 半导体
+        scenario: scenario filter, e.g. 竞争分析 / 市场调研 / 企业出海
+        q: keyword over name / summary / topic
+        limit: page size, 1-100 (default 20)
+        offset: page offset (default 0)
+
+    Returns:
+        dict: {ok, data: {total, limit, offset, items: [{id, name, summary,
+              industry, scenario, companies_preview[], provision_state,
+              granted, grants_count}]}, meta}
+    """
+    if not 1 <= limit <= 100:
+        return _report_invalid("limit must be between 1 and 100", {"limit": limit})
+    if offset < 0:
+        return _report_invalid("offset must be >= 0", {"offset": offset})
+    params = {"limit": int(limit), "offset": int(offset)}
+    for key, value in (("industry", industry), ("scenario", scenario), ("q", q)):
+        if str(value or "").strip():
+            params[key] = str(value).strip()
+    client = get_report_client()
+    result = _report_call(
+        lambda: client.request("GET", "/cvc-templates", params=params), client,
+    )
+    if isinstance(result, dict) and result.get("ok"):
+        data = result.get("data") or {}
+        items = data.get("items") or []
+        if not items:
+            data["next_actions"] = [{
+                "tool": "search_cvc_companies",
+                "args": {"query": q or "<分析目标>", "limit": 8},
+                "hint": "没有匹配模版时改用智能推理检索候选公司，再从检索结果建链",
+            }]
+            _attach_recommendations(result, [_recommendation(
+                "fallback_smart_search",
+                kind="fallback", priority="medium",
+                message=("没有匹配的模版：改用智能推理检索候选公司，再从检索结果建链。"),
+                tool="search_cvc_companies",
+                args={"query": q or "<分析目标>", "limit": 8},
+                cost_credits=0, eta_seconds=8,
+            )], into_data=True)
+        elif items:
+            first = items[0] if isinstance(items[0], dict) else {}
+            data["next_actions"] = [{
+                "tool": "get_cvc_template",
+                "args": {"template_id": first.get("id") or "<template_id>"},
+                "hint": "先看模版详情里的企业清单与准备状态，再决定是否实例化",
+            }]
+            _attach_recommendations(result, [_recommendation(
+                "inspect_template",
+                kind="next_step", priority="high",
+                message="先看模版详情里的企业清单与准备状态，再决定是否实例化。",
+                tool="get_cvc_template",
+                args={"template_id": first.get("id") or "<template_id>"},
+                cost_credits=0, eta_seconds=2,
+            )], into_data=True)
+    return result
+
+
+@mcp.tool(
+    title="行业模版详情（免费）",
+    annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T1", "cost_credits": 0, "eta_seconds": 2,
+          "next": "create_cvc_from_template"},
+)
+def get_cvc_template(template_id: str) -> dict:
+    """读取行业模版详情（免费）：企业清单预览、实例准备状态、本租户授权状态。
+
+    Args:
+        template_id: template id from list_cvc_templates
+
+    Returns:
+        dict: {ok, data: {id, name, summary, industry, scenario,
+              companies_preview[], provision_state, granted, grants_count,
+              creation_endpoint, provision_status_url}, meta}
+    """
+    error = _path_id(template_id, "template_id")
+    if error:
+        return _report_invalid(error, {"template_id": template_id})
+    client = get_report_client()
+    result = _report_call(
+        lambda: client.request(
+            "GET", f"/cvc-templates/{quote(template_id, safe='')}",
+        ),
+        client,
+    )
+    if isinstance(result, dict) and result.get("ok"):
+        data = result.get("data")
+        if isinstance(data, dict):
+            data["next_actions"] = [{
+                "tool": "create_cvc_from_template",
+                "args": {"template_id": template_id, "dry_run": True},
+                "hint": "先 dry_run 预检确认成本，用户同意后再 confirm=true 执行",
+            }]
+        _attach_recommendations(result, [_recommendation(
+            "instantiate_template",
+            kind="next_step", priority="high",
+            message=("实例化模版（2.5 credits，租户首个 CVC 免费；已实例化不重复扣费）。"
+                     "先 dry_run 预检，用户确认后再 confirm=true 执行。"),
+            tool="create_cvc_from_template",
+            args={"template_id": template_id, "dry_run": True},
+            cost_credits=0, eta_seconds=2, requires_user_confirm=True,
+        )], into_data=True)
+    return result
+
+
+@mcp.tool(
+    title="用行业模版建链（2.5 credits，先 dry_run）",
+    annotations={"readOnlyHint": False, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T2", "cost_credits": _TEMPLATE_BUILD_CREDITS,
+          "eta_seconds": _TEMPLATE_BUILD_ETA_SECONDS, "first_free": True,
+          "requires_user_confirm": True, "dry_run_default": True,
+          "requires": "cvc:write + template published"},
+)
+def create_cvc_from_template(
+    template_id: str,
+    dry_run: bool = True,
+    confirm: bool = False,
+    confirm_token: str = "",
+) -> dict:
+    """用行业模版创建价值链：幂等授权 + 首次实例化并异步构建。
+
+    USE WHEN: 用户想复用专家预置的行业口径，或已从 list_cvc_templates 选定模版。
+    DO NOT USE WHEN: 用户有明确的企业清单 → create_cvc_model（智能推理/精确定义）。
+
+    COST: 2.5 credits（full 构建）；租户首个 CVC 免费；模版实例全租户共享，
+    已实例化且构建完成的模版再次使用不扣费。dry_run=true 只预检，不扣费。
+    LATENCY: 实例化秒级返回 202；共享构建约 3-10 分钟，完成发邮件。
+    RETURNS: dry_run → 模版预览 + cost_note + confirm_token + confirm_call；
+    执行 → {cvc_id, instance_status, is_first_use, already_granted,
+    provision_eta_seconds, next_actions}。
+    NEXT: 轮询 get_cvc_template_provision_status，实例 ready 后
+    get_cvc_build_status 看构建进度；不要阻塞对话等构建完成。
+
+    Args:
+        template_id: template id from list_cvc_templates
+        dry_run: preview only (default true), no charge and no instantiation
+        confirm: set true together with dry_run=false after the user agrees
+        confirm_token: token returned by dry_run; passing it implies confirmation
+            (bound to template_id, valid for MCP_CONFIRM_TOKEN_TTL)
+
+    Returns:
+        dict: {ok, data: {...}, meta}
+    """
+    error = _path_id(template_id, "template_id")
+    if error:
+        return _report_invalid(error, {"template_id": template_id})
+    confirm_args = {"template_id": template_id, "dry_run": False}
+    confirmed = verify_confirm_token(
+        confirm_token, "create_cvc_from_template", confirm_args,
+    ) or (bool(confirm) and not dry_run)
+    client = get_report_client()
+
+    if not confirmed:
+        preview = _report_call(
+            lambda: client.request(
+                "GET", f"/cvc-templates/{quote(template_id, safe='')}",
+            ),
+            client,
+        )
+        if not isinstance(preview, dict) or not preview.get("ok"):
+            return preview
+        template = _template_summary(preview.get("data") or {})
+        already_granted = bool(template.get("granted"))
+        token = issue_confirm_token("create_cvc_from_template", confirm_args)
+        data = {
+            "dry_run": True,
+            "template": template,
+            "requires_confirm": True,
+            "cost_note": {
+                "credits": _TEMPLATE_BUILD_CREDITS,
+                "first_cvc_free": True,
+                "already_granted": already_granted,
+                "charged_on_confirm": (not already_granted)
+                and template.get("provision_state") != "ready",
+                "note": "首个 CVC 免费；已实例化且就绪的模版不重复扣费；失败自动退点。",
+            },
+            "confirm_token": token,
+            "confirm_call": {
+                "tool": "create_cvc_from_template",
+                "args": {"template_id": template_id, "dry_run": False, "confirm": True},
+            },
+            "user_message": (
+                f"预检完成，未扣费。是否使用模版「{template.get('name') or template_id}」"
+                f"创建价值链？（约 {_TEMPLATE_BUILD_CREDITS} credits，"
+                "租户首个 CVC 免费；确认后直接执行 confirm_call，"
+                f"令牌 {_CONFIRM_TOKEN_TTL_SECONDS // 60} 分钟内有效）"
+            ),
+        }
+        result = {"ok": True, "data": data, "meta": preview.get("meta") or {}}
+        _attach_recommendations(result, [_recommendation(
+            "confirm_template_create",
+            kind="next_step", priority="high",
+            message=("把 user_message 转述给用户；确认后直接执行 confirm_call，"
+                     "无需再次预检。"),
+            tool="create_cvc_from_template",
+            args={**confirm_args, "confirm": True, "confirm_token": "<confirm_token>"},
+            cost_credits=_TEMPLATE_BUILD_CREDITS,
+            eta_seconds=_TEMPLATE_BUILD_ETA_SECONDS,
+            requires_user_confirm=True, show_once_per_session=False,
+        )], into_data=True)
+        return result
+
+    result = _report_call(
+        lambda: client.request(
+            "POST", f"/cvc-templates/{quote(template_id, safe='')}/creation-jobs",
+            json_body={},
+        ),
+        client,
+    )
+    if not isinstance(result, dict) or not result.get("ok"):
+        return result
+    data = result.get("data")
+    if isinstance(data, dict):
+        data["creation_mode"] = "template"
+        cvc_id = data.get("cvc_id") or ""
+        data["user_message"] = (
+            "已基于行业模版开始建链：共享实例约 3-10 分钟构建完成，"
+            "完成后系统会向注册邮箱发送邮件通知；期间可先查看看板。"
+        )
+        data["next_actions"] = [
+            {"tool": "get_cvc_template_provision_status",
+             "args": {"template_id": template_id},
+             "hint": "每 5 秒轮询一次，直到 instance_status=ready/failed"},
+            {"tool": "get_cvc_build_status",
+             "args": {"cvc_id": cvc_id or "<cvc_id>"},
+             "hint": "实例 ready 后查看构建阶段与失败归因"},
+        ]
+        _attach_recommendations(result, [
+            _recommendation(
+                "poll_template_provision",
+                kind="next_step", priority="high",
+                message=("轮询模版实例准备状态；ready 后再看 build-status。"
+                         "告诉用户约 3-10 分钟 + 完成邮件，不要阻塞等待。"),
+                tool="get_cvc_template_provision_status",
+                args={"template_id": template_id},
+                cost_credits=0, eta_seconds=_TEMPLATE_PROVISION_ETA_SECONDS,
+                show_once_per_session=False,
+            ),
+            _recommendation(
+                "template_warmup",
+                kind="capability", priority="medium",
+                message="构建期间可先看免费看板与市场趋势，避免用户空等。",
+                tool="casee_get_cvc_dashboard",
+                args={"cvc_id": cvc_id or "<cvc_id>"},
+                cost_credits=0, eta_seconds=5,
+            ),
+        ], into_data=True)
+    return result
+
+
+@mcp.tool(
+    title="模版实例准备状态（免费）",
+    annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True},
+    meta={"tier": "T1", "cost_credits": 0, "eta_seconds": 2,
+          "requires": "create_cvc_from_template"},
+)
+def get_cvc_template_provision_status(template_id: str) -> dict:
+    """轮询模版实例准备进度（免费）：pending → building → ready / failed。
+
+    Args:
+        template_id: template id used in create_cvc_from_template
+
+    Returns:
+        dict: {ok, data: {template_id, cvc_id, instance_status, build_progress,
+              current_phase, updated_at, user_message, next_actions}, meta}
+    """
+    error = _path_id(template_id, "template_id")
+    if error:
+        return _report_invalid(error, {"template_id": template_id})
+    client = get_report_client()
+    result = _report_call(
+        lambda: client.request(
+            "GET", f"/cvc-templates/{quote(template_id, safe='')}/provision-status",
+        ),
+        client,
+    )
+    if isinstance(result, dict) and result.get("ok"):
+        data = result.get("data")
+        if isinstance(data, dict):
+            status = str(data.get("instance_status") or "")
+            label = {
+                "not_provisioned": "尚未实例化",
+                "pending": "等待实例化",
+                "provisioning": "实例准备中",
+                "building": "构建中",
+                "ready": "实例已就绪",
+                "failed": "实例准备失败",
+                "suspended": "实例已暂停",
+            }.get(status, status or "未知状态")
+            data["status_label"] = label
+            cvc_id = data.get("cvc_id") or ""
+            if status == "ready":
+                data["user_message"] = "实例已就绪，可查看构建进度与看板。"
+                data["next_actions"] = [{
+                    "tool": "get_cvc_build_status",
+                    "args": {"cvc_id": cvc_id or "<cvc_id>"},
+                    "hint": "查看构建阶段；ready 后可直接使用语义检索与洞察",
+                }]
+            elif status == "failed":
+                data["user_message"] = (
+                    "实例准备失败：不要自动重试，先向用户说明并在模版库重新使用该模版。"
+                )
+                data["next_actions"] = [{
+                    "tool": "create_cvc_from_template",
+                    "args": {"template_id": template_id, "dry_run": True},
+                    "hint": "重新预检并实例化（用户确认后执行）",
+                }]
+            else:
+                data["user_message"] = "实例仍在准备中，请稍后再轮询（建议间隔 5 秒）。"
+    return result

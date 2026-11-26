@@ -54,7 +54,13 @@ def _probe(url: str, api_key: str) -> Dict[str, Any]:
     """GET a probe URL and normalise the outcome (never raises)."""
     try:
         resp = httpx.get(
-            url, headers={"X-API-Key": api_key}, timeout=_PROBE_TIMEOUT,
+            url,
+            headers={
+                "X-API-Key": api_key,
+                "X-Casee-Call-Purpose": "auth_probe",
+                "X-Casee-Client": "casee-mcp-server",
+            },
+            timeout=_PROBE_TIMEOUT,
         )
     except httpx.HTTPError as exc:
         return {"ok": False, "status": None, "detail": f"unreachable: {exc}"}
@@ -115,11 +121,11 @@ def run_startup_self_check(transport: str) -> bool:
         return False
 
     is_result = _probe(f"{is_base}/v1/stats", api_key)
-    eirs_result = _probe(f"{openapi_base}/credits", api_key)
+    eirs_result = _probe(f"{openapi_base}/keys/whoami", api_key)
 
     for label, url, result in (
         ("is-server", f"{is_base}/v1/stats", is_result),
-        ("eirs-openapi", f"{openapi_base}/credits", eirs_result),
+        ("eirs-openapi", f"{openapi_base}/keys/whoami", eirs_result),
     ):
         if result["ok"]:
             logger.info("startup-check %-13s %s -> 200 OK", label, url)

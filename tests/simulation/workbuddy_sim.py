@@ -67,18 +67,20 @@ SRC_ROOT = PKG_ROOT / "src"
 CLIENT_NAME = "workbuddy"
 CLIENT_VERSION = "2.0.0"
 
-CORE_TOOLS = (
-    "casee_guide",
-    "casee_plan_task",
-    "search_intelligence",
-    "semantic_search_tool",
-    "search_with_cvc",
-    "create_cvc_model",
-    "casee_get_credits",
-    "casee_home_overview",
-    "casee_get_enterprise_insight",
-)
 VALID_TIERS = {"T0", "T1", "T2", "T3"}
+
+
+def registry_snapshot(profile: str) -> Tuple[str, List[str], List[str]]:
+    """读取服务端注册表，避免把版本号与工具数量写死在仿真里。
+
+    ``MCP_TOOL_PROFILE`` 会影响 ``tools/list`` 的输出，因此期望值必须与
+    当前 profile 同源计算，否则分层调整后仿真会误报。
+    """
+    sys.path.insert(0, str(SRC_ROOT))
+    from casee_mcp_server import server as server_mod  # noqa: PLC0415 - 延迟导入
+    from casee_mcp_server.version import __version__  # noqa: PLC0415 - 延迟导入
+
+    return __version__, server_mod.visible_tool_names(profile), server_mod.all_tool_names()
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +173,9 @@ def recommendations_of(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 # scenarios
 # ---------------------------------------------------------------------------
 
-async def scenario_protocol(session: ClientSession, report: Report) -> None:
+async def scenario_protocol(session: ClientSession, report: Report,
+                            expected_version: str, expected_tools: List[str],
+                            all_tools: List[str], profile: str) -> None:
     area = "L1 protocol"
 
     instructions = (session.instructions or "").strip()
@@ -183,12 +187,19 @@ async def scenario_protocol(session: ClientSession, report: Report) -> None:
     server_info = session.server_info
     report.check(area, "server name", getattr(server_info, "name", "") == "casee",
                  str(server_info))
-    report.check(area, "server version 1.13.1",
-                 getattr(server_info, "version", "") == "1.13.1",
+    report.check(area, f"server version {expected_version}",
+                 getattr(server_info, "version", "") == expected_version,
                  str(getattr(server_info, "version", "")))
 
     tools = (await session.list_tools()).tools
-    report.check(area, "tool count == 62", len(tools) == 62, f"count={len(tools)}")
+    names = {t.name for t in tools}
+    report.check(area, f"profile={profile} 暴露 {len(expected_tools)} 个工具",
+                 names == set(expected_tools),
+                 f"count={len(names)} missing={sorted(set(expected_tools) - names)[:5]} "
+                 f"extra={sorted(names - set(expected_tools))[:5]}")
+    report.check(area, "隐藏工具不在 tools/list",
+                 not (names & (set(all_tools) - set(expected_tools))),
+                 str(sorted(names & (set(all_tools) - set(expected_tools)))[:5]))
     empty_desc = [t.name for t in tools if not (t.description or "").strip()]
     report.check(area, "every tool has a description", not empty_desc, str(empty_desc[:5]))
 
@@ -196,7 +207,7 @@ async def scenario_protocol(session: ClientSession, report: Report) -> None:
     missing_tier: List[str] = []
     missing_annotations: List[str] = []
     missing_use_when: List[str] = []
-    for name in CORE_TOOLS:
+    for name in expected_tools:
         tool = by_name.get(name)
         if tool is None:
             report.check(area, f"tool registered: {name}", False, "not listed")
@@ -208,10 +219,10 @@ async def scenario_protocol(session: ClientSession, report: Report) -> None:
             missing_annotations.append(name)
         if "USE WHEN" not in (tool.description or ""):
             missing_use_when.append(name)
-    report.check(area, "core tools declare _meta.tier", not missing_tier, str(missing_tier))
-    report.check(area, "core tools declare annotations", not missing_annotations,
+    report.check(area, "visible tools declare _meta.tier", not missing_tier, str(missing_tier))
+    report.check(area, "visible tools declare annotations", not missing_annotations,
                  str(missing_annotations))
-    report.check(area, "core tool descriptions use USE WHEN", not missing_use_when,
+    report.check(area, "visible tool descriptions use USE WHEN", not missing_use_when,
                  str(missing_use_when))
 
 
@@ -530,7 +541,7 @@ def _free_port() -> int:
 
 
 def boot_server(api_key: str, backend: str, upstream: str, port: int,
-                log_path: Path) -> subprocess.Popen:
+                log_path: Path, profile: str = "core") -> subprocess.Popen:
     env = dict(os.environ)
     env.update({
         "MCP_TRANSPORT": "streamable-http",
@@ -538,6 +549,7 @@ def boot_server(api_key: str, backend: str, upstream: str, port: int,
         "MCP_PORT": str(port),
         "MCP_JSON_RESPONSE": "true",
         "MCP_STARTUP_CHECK_STRICT": "false",
+        "MCP_TOOL_PROFILE": profile,
         "CASEE_IS_API_KEY": api_key,
         "CASEE_API_BASE_URL": upstream,
         "CASEE_OPENAPI_BASE_URL": f"{backend}/api/v1/openapi",
@@ -576,13 +588,17 @@ async def run(args: argparse.Namespace) -> int:
     session_id = args.session or f"sim-{uuid.uuid4().hex[:8]}"
     report.note(f"api_key={api_key[:14]}… session={session_id} backend={args.backend}")
 
+    profile = (os.environ.get("MCP_TOOL_PROFILE") or "core").strip().lower()
+    expected_version, expected_tools, all_tools = registry_snapshot(profile)
+    report.note(f"profile={profile} visible={len(expected_tools)} total={len(all_tools)}")
+
     proc: Optional[subprocess.Popen] = None
     log_path = Path(tempfile.gettempdir()) / f"casee-mcp-sim-{session_id}.log"
     if args.mcp_url:
         mcp_url = args.mcp_url
     else:
         port = args.port or _free_port()
-        proc = boot_server(api_key, args.backend, args.upstream, port, log_path)
+        proc = boot_server(api_key, args.backend, args.upstream, port, log_path, profile)
         if not await wait_ready(port, proc):
             print(f"ERROR: MCP server failed to start; see {log_path}", file=sys.stderr)
             proc.terminate()
@@ -604,7 +620,8 @@ async def run(args: argparse.Namespace) -> int:
                 await session.initialize()
                 report.note("session initialized")
 
-                await scenario_protocol(session, report)
+                await scenario_protocol(session, report, expected_version,
+                                        expected_tools, all_tools, profile)
                 await scenario_guide(session, report)
                 await scenario_plan(session, report)
                 await scenario_credits(session, report)

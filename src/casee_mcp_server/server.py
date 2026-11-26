@@ -30,10 +30,17 @@ Report tools (v1.4, OpenAPI /api/v1/openapi):
 
 CVC lifecycle tools (v1.6, OpenAPI /api/v1/openapi):
 - search_cvc_companies      Search candidate companies (async job + bounded poll)
-- create_cvc_model          Create a CVC draft (async job + bounded poll)
+- create_cvc_model          Create a CVC draft (async job + bounded poll);
+                            supports objective (smart) and objective_definition (precise)
 - get_company_search_job    Poll a company-search job by job_id
 - get_cvc_creation_job      Poll a CVC-creation job by job_id
 - get_cvc_build_status      Poll build phases / current step / failure hints
+
+Industry-template creation tools (v1.8, third creation mode):
+- list_cvc_templates                  Browse expert-curated templates (free)
+- get_cvc_template                    Template detail + companies preview (free)
+- create_cvc_from_template            Idempotent grant + provision (dry_run first)
+- get_cvc_template_provision_status   Poll pending → building → ready / failed
 
 OpenAPI coverage tools (v1.7, registered from openapi_tools.py):
 - Billing:     casee_get_credits, casee_get_credit_ledger, casee_get_quota
@@ -70,12 +77,16 @@ Startup:
 """
 
 import ast
+import base64
 import hashlib
+import hmac
+import json
+import logging
 import os
 import re
 import time
 from collections import Counter, defaultdict
-from typing import Annotated
+from typing import Annotated, Optional
 
 from pydantic import Field
 
@@ -104,8 +115,14 @@ from casee.exceptions import (
 )
 
 from .reports import get_report_client, resolve_is_api_key
-from .request_context import bind_caller_api_key, get_caller_api_key, get_caller_session
+from .request_context import (
+    bind_caller_api_key,
+    get_caller_api_key,
+    get_caller_session,
+    get_caller_tool,
+)
 from .sanitize import sanitize_payload
+from .usage_events import report_usage_event
 from .version import __version__
 
 
@@ -122,6 +139,15 @@ CaSee 企业竞争情报平台使用规则（服务级指引，优先于单个�
 2) 要持续跟踪 / 跨时间对比 / 盯竞争对手 → 必须建价值链（CVC）：
    search_cvc_companies（免费，确认主体）→ create_cvc_model（首条免费；lite 1.0 credit
    约 3-5 分钟 / full 2.5 credits 约 10 分钟）→ rebuild_cvc_model → get_cvc_build_status。
+   建链有三种方式（与门户主页一致，按用户输入选择，不要默认只用一种）：
+   - 智能推理：objective 传自然语言目标；
+   - 精确定义：objective_definition 传四维 {mode:"precise", target_regions[],
+     target_customers, target_competitors, target_industry_standards}，
+     服务端按 地区→客户→竞品→行业规约 组合；
+   - 行业模版：用户不确定搜哪些公司 / 想复用专家口径 → list_cvc_templates
+     → get_cvc_template → create_cvc_from_template（2.5 credits，首个 CVC 免费；
+     先 dry_run 预检拿 confirm_token，用户确认后 confirm=true 执行）
+     → get_cvc_template_provision_status → get_cvc_build_status。
    建链是异步的：同一轮对话最多轮询 3 次；明确告诉用户时长 + 完成邮件，不要阻塞等待。
    想先看效果再建链 → 打开公共样本 cvc_demoevbat01（只读、0 credit，看 dashboard/洞察）。
 3) 已有 cvc_id，要按语义找证据 → search_with_cvc 收集 → semantic_search_tool 检索。
@@ -824,13 +850,43 @@ def _caller_key_kwargs() -> dict:
     return {"api_key": key} if key else {}
 
 
+def _usage_result_count(result) -> Optional[int]:
+    """从检索结果里尽量提取条数，仅用于使用事件的可观测性。"""
+    if not isinstance(result, dict):
+        return None
+    for key in ("items", "results", "data", "companies", "records"):
+        value = result.get(key)
+        if isinstance(value, list):
+            return len(value)
+    return None
+
+
+def _report_sdk_usage(result) -> None:
+    """免费检索（is-server SDK）调用上报；失败不影响工具返回。"""
+    tool = get_caller_tool()
+    if not tool:
+        return
+    failed = isinstance(result, dict) and (
+        result.get("success") is False or bool(result.get("error"))
+    )
+    report_usage_event(
+        tool,
+        status="error" if failed else "ok",
+        result_count=None if failed else _usage_result_count(result),
+    )
+
+
 def _sdk_call(fn, **kwargs):
     """Keyword-only convenience wrapper around :func:`_safe_call`.
 
-    Binds the verified caller key so retrieval runs as the calling tenant.
+    Binds the verified caller key so retrieval runs as the calling tenant,
+    and reports a lightweight usage event (the call itself never touches EIRS,
+    so it would otherwise be invisible in tenant monitoring).
     """
     kwargs.update(_caller_key_kwargs())
-    return _safe_call(fn, **kwargs)
+    result = _safe_call(fn, **kwargs)
+    _report_sdk_usage(result)
+    return result
 
 
 def _diagnose_sdk_error(exc: CaseeError) -> str:
@@ -1625,7 +1681,8 @@ def _is_async_unavailable(exc: Exception) -> bool:
           "next": "create_cvc_model"},
 )
 def search_cvc_companies(query: str, language: str = "zh", limit: int = 8,
-                         wait_seconds: int = 240) -> dict:
+                         wait_seconds: int = 240,
+                         objective_definition: dict | None = None) -> dict:
     """搜索候选公司：建链前的必经第一步，结果必须让用户确认。
 
     USE WHEN: 用户要持续跟踪/深度分析但没有 company_id；已有明确公司名但不确定主体。
@@ -1653,6 +1710,9 @@ def search_cvc_companies(query: str, language: str = "zh", limit: int = 8,
         language: zh | en
         limit: max number of companies, 1-20 (default 8; 3-8 works best)
         wait_seconds: max seconds to wait for the job, 0-240 (0 returns job_id immediately)
+        objective_definition: optional structured goal definition, same contract as
+            create_cvc_model. precise = combine 地区→客户→竞品→行业规约 into the
+            query; the definition is stored with the job for the following create.
 
     Returns:
         dict: {ok, data: {query, query_type, query_topic, suggested_cvc_name,
@@ -1664,6 +1724,13 @@ def search_cvc_companies(query: str, language: str = "zh", limit: int = 8,
               next_actions, user_message}, meta}
     """
     q = (query or "").strip()
+    if objective_definition is not None and not isinstance(objective_definition, dict):
+        return _report_invalid(
+            "objective_definition must be an object with mode + four goal fields",
+            {"objective_definition": objective_definition},
+        )
+    normalized_definition = _normalize_objective_definition(objective_definition)
+    q = _resolve_objective_text(q, normalized_definition)
     if len(q) < 2:
         return _report_invalid("query must contain at least 2 characters", {"query": query})
     if language not in ("zh", "en"):
@@ -1676,6 +1743,8 @@ def search_cvc_companies(query: str, language: str = "zh", limit: int = 8,
 
     def call():
         payload = {"query": q, "language": language, "limit": int(limit)}
+        if normalized_definition:
+            payload["objective_definition"] = normalized_definition
         try:
             created = client.request(
                 "POST", "/companies/search-jobs", json_body=payload, timeout=30.0,
@@ -1698,6 +1767,99 @@ def search_cvc_companies(query: str, language: str = "zh", limit: int = 8,
     return _report_call(call, client)
 
 
+# ---------------------------------------------------------------------------
+# 分析目标定义（智能推理 / 精确定义）
+# ---------------------------------------------------------------------------
+# 与门户主页 `objectiveDefinition.ts`、后端 `objective_definition.py` 同一口径：
+# 精确定义按「地区 → 客户 → 竞品 → 行业规约」组合，跳过空项，组合结果不超过 200 字。
+# MCP 侧先做归一化与校验，避免把非法结构透传到后端再换回一个 400。
+_OBJECTIVE_TEXT_MAX = 200
+_OBJECTIVE_FIELD_MAX = 40
+_OBJECTIVE_REGION_MAX = 8
+_OBJECTIVE_REGION_LIMIT = 4
+
+
+def _clean_objective_str(value, limit: int) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()[:limit]
+
+
+def _clean_objective_regions(value) -> list:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return []
+    regions: list = []
+    for item in value:
+        name = _clean_objective_str(item, _OBJECTIVE_REGION_MAX)
+        if name and name not in regions:
+            regions.append(name)
+        if len(regions) >= _OBJECTIVE_REGION_LIMIT:
+            break
+    return regions
+
+
+def _normalize_objective_definition(raw) -> dict | None:
+    """归一化四维目标定义；非字典输入视为未提供。"""
+    if not isinstance(raw, dict):
+        return None
+    mode = "precise" if raw.get("mode") == "precise" else "smart"
+    return {
+        "mode": mode,
+        "text": _clean_objective_str(raw.get("text"), _OBJECTIVE_TEXT_MAX),
+        "target_customers": _clean_objective_str(
+            raw.get("target_customers"), _OBJECTIVE_FIELD_MAX),
+        "target_regions": _clean_objective_regions(raw.get("target_regions")),
+        "target_competitors": _clean_objective_str(
+            raw.get("target_competitors"), _OBJECTIVE_FIELD_MAX),
+        "target_industry_standards": _clean_objective_str(
+            raw.get("target_industry_standards"), _OBJECTIVE_FIELD_MAX),
+        "version": 1,
+    }
+
+
+def _has_precise_objective(definition: dict | None) -> bool:
+    if not definition:
+        return False
+    return bool(
+        _clean_objective_regions(definition.get("target_regions"))
+        or _clean_objective_str(definition.get("target_customers"), _OBJECTIVE_FIELD_MAX)
+        or _clean_objective_str(definition.get("target_competitors"), _OBJECTIVE_FIELD_MAX)
+        or _clean_objective_str(
+            definition.get("target_industry_standards"), _OBJECTIVE_FIELD_MAX)
+    )
+
+
+def _compose_objective(definition: dict) -> str:
+    segments: list = []
+    regions = _clean_objective_regions(definition.get("target_regions"))
+    customers = _clean_objective_str(definition.get("target_customers"), _OBJECTIVE_FIELD_MAX)
+    competitors = _clean_objective_str(
+        definition.get("target_competitors"), _OBJECTIVE_FIELD_MAX)
+    standards = _clean_objective_str(
+        definition.get("target_industry_standards"), _OBJECTIVE_FIELD_MAX)
+    if regions:
+        segments.append(f"目标地区：{'、'.join(regions)}")
+    if customers:
+        segments.append(f"目标客户：{customers}")
+    if competitors:
+        segments.append(f"目标竞品：{competitors}")
+    if standards:
+        segments.append(f"行业规约：{standards}")
+    return "；".join(segments)[:_OBJECTIVE_TEXT_MAX]
+
+
+def _resolve_objective_text(text: str, definition: dict | None) -> str:
+    """把原文与结构化定义对齐为实际检索词；精确定义为空时回退原文。"""
+    fallback = _clean_objective_str(text, _OBJECTIVE_TEXT_MAX)
+    if not definition:
+        return fallback
+    if definition.get("mode") == "precise":
+        return _compose_objective(definition) or fallback
+    return definition.get("text") or fallback
+
+
 @mcp.tool(
     title="创建价值链（付费、异步；lite 约 3-5 分钟 / full 约 10 分钟）",
     annotations={"readOnlyHint": False, "destructiveHint": False,
@@ -1713,6 +1875,8 @@ def create_cvc_model(
     query_type: str = "industry",
     query_topic: str = "",
     search_input: str = "",
+    objective: str = "",
+    objective_definition: dict | None = None,
     language: str = "zh",
     overwrite: bool = False,
     build_profile: str = "lite",
@@ -1732,6 +1896,13 @@ def create_cvc_model(
     PREREQUISITES: 至少 1 家公司（来自 search_cvc_companies）；cvc:write 权限。
     COST: lite 1.0 credit（约 3-5 分钟）/ full 2.5 credits（约 10 分钟）；每个租户首条免费。
     LATENCY: 创建秒级，构建异步（lite ≈3-5 分钟 / full ≈10 分钟）。
+    OBJECTIVE: 三种建链方式与主页一致——
+    - 智能推理：直接传 objective（自然语言）。
+    - 精确定义：传 objective_definition
+      {mode:"precise", target_regions[], target_customers, target_competitors,
+       target_industry_standards}；服务端按 地区→客户→竞品→行业规约 组合为检索目标。
+      四维至少一项，组合文本 ≤200 字（单字段 ≤40 字、地区 ≤4 个）。
+    - 行业模版：不要用本工具，改用 create_cvc_from_template（专家预置企业清单 + 检索口径）。
     RETURNS: cvc_id + next_step(rebuild) + free_warmup（构建期间可先看的免费能力）
     + recommendations。
     NEXT: 立即调用 rebuild_cvc_model 启动构建，并告诉用户“约 3/10 分钟 + 完成邮件”，
@@ -1763,6 +1934,14 @@ def create_cvc_model(
             company names are supplied, otherwise phase-1 relevance filtering
             may drop every intelligence item)
         search_input: retrieval keywords (defaults to name)
+        objective: analysis goal / retrieval objective (natural language, ≤200 chars);
+            takes precedence over search_input when objective_definition is absent
+        objective_definition: structured goal definition (homepage
+            "智能推理 / 精确定义"), {mode: "smart"|"precise", text,
+            target_customers, target_regions[], target_competitors,
+            target_industry_standards}. precise = combine 地区→客户→竞品→行业规约;
+            at least one of the four fields is required, combined text ≤200 chars
+            (single field ≤40 chars, up to 4 regions). smart = use text as-is.
         language: zh | en
         overwrite: replace an existing CVC with the same name (dangerous)
         build_profile: lite (default, 1.0 credit, ~3 min, 5 core companies) |
@@ -1800,6 +1979,26 @@ def create_cvc_model(
         return _report_invalid("companies supports at most 20 entries", {"count": len(normalized)})
     if language not in ("zh", "en"):
         return _report_invalid("language must be zh or en", {"language": language})
+    if objective_definition is not None and not isinstance(objective_definition, dict):
+        return _report_invalid(
+            "objective_definition must be an object: {mode, text, target_regions[], "
+            "target_customers, target_competitors, target_industry_standards}",
+            {"objective_definition": objective_definition},
+        )
+    raw_mode = (objective_definition or {}).get("mode")
+    if raw_mode not in (None, "", "smart", "precise"):
+        return _report_invalid(
+            'objective_definition.mode must be "smart" or "precise"', {"mode": raw_mode},
+        )
+    normalized_definition = _normalize_objective_definition(objective_definition)
+    if normalized_definition and normalized_definition["mode"] == "precise":
+        if not _has_precise_objective(normalized_definition):
+            return _report_invalid(
+                "精确定义至少填写一项：target_regions / target_customers / "
+                "target_competitors / target_industry_standards",
+                {"objective_definition": objective_definition},
+            )
+    resolved_objective = _resolve_objective_text(objective, normalized_definition)
     if idempotency_key and not 8 <= len(idempotency_key) <= 128:
         return _report_invalid(
             "idempotency_key must be 8-128 characters", {"length": len(idempotency_key)},
@@ -1823,6 +2022,15 @@ def create_cvc_model(
                     "完成后系统会向注册邮箱发送邮件通知。"
                 )
             data["build_profile"] = profile
+            data["creation_mode"] = data.get("creation_mode") or (
+                "precise"
+                if normalized_definition and normalized_definition["mode"] == "precise"
+                else "smart"
+            )
+            if resolved_objective:
+                data.setdefault("objective", resolved_objective)
+            if normalized_definition:
+                data.setdefault("objective_definition", normalized_definition)
             data["next_step"] = {
                 "tool": "rebuild_cvc_model",
                 "args": {
@@ -1857,6 +2065,10 @@ def create_cvc_model(
             "build_profile": profile,
             "companies": normalized,
         }
+        if resolved_objective:
+            body["objective"] = resolved_objective
+        if normalized_definition:
+            body["objective_definition"] = normalized_definition
         headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
         try:
             created = client.request(
@@ -1928,7 +2140,10 @@ def get_company_search_job(job_id: str) -> dict:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    meta={"tier": "T1", "cost_credits": 0, "eta_seconds": 2,
+          "requires": "create_cvc_model"},
+)
 def get_cvc_creation_job(job_id: str) -> dict:
     """Poll an async CVC-creation job created by ``create_cvc_model``.
 
@@ -1949,7 +2164,10 @@ def get_cvc_creation_job(job_id: str) -> dict:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    meta={"tier": "T1", "cost_credits": 0, "eta_seconds": 2,
+          "requires": "completed create_cvc_model"},
+)
 def get_cvc_build_status(
     cvc_id: str,
     wait_seconds: int = 0,
@@ -2214,6 +2432,78 @@ def _report_call(fn, client=None, *, next_poll_after_ms: int | None = None) -> d
     return sanitize_payload({"ok": True, "data": data, "meta": meta})
 
 
+# ---------------------------------------------------------------------------
+# 收费确认令牌（一次确认、批量执行）
+# ---------------------------------------------------------------------------
+# 收费工具原本要求每个步骤都重新向用户确认，多轮对话里很容易停在 dry_run。
+# ``dry_run`` 预检会返回一个签名令牌，客户端只需用户确认一次，之后带
+# ``confirm_token`` 调用即可直接执行；令牌绑定工具名 + 业务参数 + 过期时间，
+# 无状态（HMAC），多进程部署也一致。
+_CONFIRM_TOKEN_TTL_SECONDS = int(os.environ.get("MCP_CONFIRM_TOKEN_TTL", "1800"))
+
+
+def _confirm_secret() -> bytes:
+    secret = (
+        os.environ.get("MCP_CONFIRM_SECRET")
+        or os.environ.get("CASEE_IS_API_KEY")
+        or "casee-mcp-confirm"
+    )
+    return secret.encode()
+
+
+def _canonical_confirm_args(args: dict | None) -> str:
+    """稳定序列化业务参数：忽略 dry_run / confirm_token 与空值。"""
+    filtered = {
+        key: value
+        for key, value in (args or {}).items()
+        if key not in ("dry_run", "confirm_token")
+        and value not in (None, "", False)
+    }
+    return json.dumps(
+        filtered, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        default=str,
+    )
+
+
+def issue_confirm_token(tool: str, args: dict,
+                        ttl_seconds: int | None = None) -> str:
+    """签发收费确认令牌（供 dry_run 结果直接下发）。"""
+    ttl = _CONFIRM_TOKEN_TTL_SECONDS if ttl_seconds is None else int(ttl_seconds)
+    payload = {
+        "t": tool,
+        "a": _canonical_confirm_args(args),
+        "exp": int(time.time()) + ttl,
+    }
+    raw = base64.urlsafe_b64encode(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).rstrip(b"=")
+    sig = hmac.new(_confirm_secret(), raw, hashlib.sha256).digest()[:16]
+    return f"{raw.decode()}.{base64.urlsafe_b64encode(sig).decode().rstrip('=')}"
+
+
+def verify_confirm_token(token: str, tool: str, args: dict) -> bool:
+    """校验令牌是否匹配该工具与本次业务参数，且未过期。"""
+    token = (token or "").strip()
+    if "." not in token:
+        return False
+    raw_b64, sig_b64 = token.rsplit(".", 1)
+    expected = base64.urlsafe_b64encode(
+        hmac.new(_confirm_secret(), raw_b64.encode(), hashlib.sha256).digest()[:16]
+    ).decode().rstrip("=")
+    if not hmac.compare_digest(expected, sig_b64):
+        return False
+    try:
+        padded = raw_b64 + "=" * (-len(raw_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+        if payload.get("t") != tool:
+            return False
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return False
+    except Exception:  # noqa: BLE001 - 任何解析失败都视为无效令牌
+        return False
+    return payload.get("a") == _canonical_confirm_args(args)
+
+
 def _report_invalid(message: str, details: dict | None = None) -> dict:
     """Local argument validation error in the structured error shape."""
     return {
@@ -2286,7 +2576,10 @@ def _condense_plan(plan: dict) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(
+    meta={"tier": "T0", "cost_credits": 0, "eta_seconds": 3,
+          "next": "plan_report"},
+)
 def list_report_templates(
     scope: str = "all",
     q: str = "",
@@ -2336,7 +2629,10 @@ def list_report_templates(
     return _report_call(call, client)
 
 
-@mcp.tool()
+@mcp.tool(
+    meta={"tier": "T1", "cost_credits": 0, "eta_seconds": 5,
+          "next": "generate_report"},
+)
 def plan_report(
     cvc_id: str,
     template_id: str,
@@ -2390,7 +2686,10 @@ def plan_report(
     return _report_call(call, client)
 
 
-@mcp.tool()
+@mcp.tool(
+    meta={"tier": "T2", "cost_credits": 1.0, "eta_seconds": 300,
+          "requires_user_confirm": True, "requires": "plan_report"},
+)
 def generate_report(
     cvc_id: str,
     template_id: str,
@@ -2463,7 +2762,10 @@ def generate_report(
     return _report_call(call, client, next_poll_after_ms=5000)
 
 
-@mcp.tool()
+@mcp.tool(
+    meta={"tier": "T1", "cost_credits": 0, "eta_seconds": 5,
+          "requires": "generate_report"},
+)
 def get_report_job(job_id: str, wait_ms: int = 0) -> dict:
     """Poll a report job: status, progress, quality, artifacts and share link.
 
@@ -2707,7 +3009,10 @@ def casee_health() -> dict:
     client = get_report_client()
 
     def call():
-        credits = client.request("GET", "/credits")
+        credits = client.request(
+            "GET", "/credits",
+            extra_headers={"X-Casee-Call-Purpose": "balance_precheck"},
+        )
         backend_version = ""
         try:
             spec = client.request("GET", "/spec")
@@ -2744,6 +3049,15 @@ Goal: `{goal}`
 
 Follow this order; never invent companies:
 
+0. Pick the creation mode from the user's input (same as the CaSee homepage):
+   - natural-language goal only → smart mode: pass `objective="{goal}"`;
+   - user gives regions / target customers / competitors / standards →
+     precise mode: pass `objective_definition={{mode:"precise", ...}}` (the
+     server combines 地区→客户→竞品→行业规约; at least one of the four fields);
+   - user is unsure which companies or wants an expert preset (行业模版) →
+     list_cvc_templates → get_cvc_template → create_cvc_from_template(dry_run=true),
+     then confirm=true after the user agrees, and poll
+     get_cvc_template_provision_status → get_cvc_build_status. Skip steps 1-4.
 1. search_cvc_companies(query="{goal}", limit=8, wait_seconds=240)
    - If data.status is queued/running: call get_company_search_job(job_id=...)
      and poll every 5 seconds until succeeded/failed.
@@ -2756,6 +3070,7 @@ Follow this order; never invent companies:
 3. create_cvc_model(
      name="{name}",
      companies=<selected items, keep products/markets/competitors>,
+     objective="{goal}",   # precise mode: objective_definition=<four fields>
      query_topic="{goal}",
      query_type="industry",
      build_profile="lite",
@@ -2855,8 +3170,101 @@ def retrieval_quality_guard_prompt() -> str:
 """
 
 
-from . import openapi_tools as _openapi_tools  # noqa: E402,F401  (registers v1.7 tools)
-from . import guidance as _guidance  # noqa: E402,F401  (registers casee_guide / casee_plan_task)
+# ---------------------------------------------------------------------------
+# 工具分层（MCP_TOOL_PROFILE=core|full）
+# ---------------------------------------------------------------------------
+# 一次暴露 66 个工具时，多数客户端只会自动启用其中一小部分，用户侧就表现为
+# "装了但只会查余额"。默认 ``core`` 只把主链路（检索 → 建链 → 语义 → 洞察 →
+# 报告）的 18 个高频工具列给客户端；其余工具仍可被显式调用（只是不出现在
+# tools/list 中），需要完整目录时设置 ``MCP_TOOL_PROFILE=full``。
+#
+# 注意：这些定义必须早于 openapi_tools / guidance 的导入，因为 guidance 会
+# 从本模块导入 tool_profile_summary（否则触发循环导入）。
+CORE_TOOL_NAMES: frozenset[str] = frozenset({
+    "casee_guide",
+    "casee_plan_task",
+    "casee_get_credits",
+    "search_intelligence",
+    "search_cvc_companies",
+    "create_cvc_model",
+    "list_cvc_templates",
+    "create_cvc_from_template",
+    "get_cvc_creation_job",
+    "get_cvc_build_status",
+    "casee_get_cvc_dashboard",
+    "search_with_cvc",
+    "semantic_search_tool",
+    "casee_get_enterprise_insight",
+    "list_report_templates",
+    "plan_report",
+    "generate_report",
+    "get_report_job",
+})
+
+_TOOL_PROFILES = ("core", "full")
+_warned_profile: str | None = None
+
+
+def get_tool_profile() -> str:
+    """当前生效的工具分层；非法值回退 core 并告警一次。"""
+    global _warned_profile
+    raw = (os.environ.get("MCP_TOOL_PROFILE") or "core").strip().lower()
+    if raw not in _TOOL_PROFILES:
+        if _warned_profile != raw:
+            logging.getLogger(__name__).warning(
+                "unknown MCP_TOOL_PROFILE=%r, falling back to 'core'", raw
+            )
+            _warned_profile = raw
+        return "core"
+    return raw
+
+
+def all_tool_names() -> list[str]:
+    """注册表中的全部工具名（不受 profile 影响）。"""
+    return sorted(tool.name for tool in mcp._tool_manager.list_tools())
+
+
+def visible_tool_names(profile: str | None = None) -> list[str]:
+    """给定 profile 下 tools/list 可见的工具名。"""
+    profile = profile or get_tool_profile()
+    names = all_tool_names()
+    if profile == "full":
+        return names
+    return [name for name in names if name in CORE_TOOL_NAMES]
+
+
+def tool_profile_summary() -> dict:
+    """给引导工具用的分层摘要（可见数量 / 隐藏清单 / 开启方式）。"""
+    all_names = all_tool_names()
+    visible = visible_tool_names()
+    return {
+        "profile": get_tool_profile(),
+        "visible_tools": len(visible),
+        "total_tools": len(all_names),
+        "hidden_tools": [name for name in all_names if name not in visible],
+        "enable_full": "MCP_TOOL_PROFILE=full",
+        "note": "core 只列出主链路高频工具；隐藏工具仍可直接调用，"
+                "需要完整目录时请服务端设置 MCP_TOOL_PROFILE=full。",
+    }
+
+
+_original_list_tools = mcp.list_tools
+
+
+async def _profiled_list_tools():
+    """按 profile 过滤 tools/list 输出（调用能力不受影响）。"""
+    tools = await _original_list_tools()
+    if get_tool_profile() == "full":
+        return tools
+    return [tool for tool in tools if tool.name in CORE_TOOL_NAMES]
+
+
+mcp.list_tools = _profiled_list_tools
+
+
+# 注册 v1.7 OpenAPI 工具与引导工具（放在分层定义之后，避免循环导入）。
+from . import guidance as _guidance  # noqa: F401  (casee_guide / casee_plan_task)
+from . import openapi_tools as _openapi_tools  # noqa: F401
 
 
 def main():

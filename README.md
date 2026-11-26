@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.13.1-blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/casee-mcp-server/"><img src="https://img.shields.io/badge/PyPI-v1.14.0-blue" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-2025.03.26-purple" alt="MCP"></a>
@@ -95,9 +95,9 @@ Most agents stop at free keyword search. CaSee's higher-value capabilities (CVC 
 
 | Tier | Meaning | Tools |
 | --- | --- | --- |
-| **T0** | Free, instant — call without asking | `search_intelligence`, `casee_home_overview`, `casee_get_credits`, `casee_get_cvc_dashboard`, `casee_get_market_trends`, `list_report_templates`, `casee_list_cvc_companies` |
+| **T0** | Free, instant — call without asking | `search_intelligence`, `casee_home_overview`, `casee_get_credits`, `casee_get_cvc_dashboard`, `casee_get_market_trends`, `list_report_templates`, `casee_list_cvc_companies`, `list_cvc_templates`, `get_cvc_template`, `get_cvc_template_provision_status` |
 | **T1** | Free add-on analysis | `analyze_trend`, `aggregate_intelligence`, `search_with_cvc`, `casee_search_charts`, `plan_report` |
-| **T2** | **Ask first** — costs 0.5–2.5 credits, 8 s – 10 min | `create_cvc_model` (default lite: 1.0 credit ≈3-5 min; full: 2.5 credits ≈10 min), `rebuild_cvc_model`, the three `*_insight` tools, `generate_report` |
+| **T2** | **Ask first** — costs 0.5–2.5 credits, 8 s – 10 min | `create_cvc_model` (default lite: 1.0 credit ≈3-5 min; full: 2.5 credits ≈10 min), `create_cvc_from_template` (2.5 credits, first CVC free), `rebuild_cvc_model`, the three `*_insight` tools, `generate_report` |
 | **T3** | Destructive — confirm twice | `rebuild_cvc_model`, `intelligence_purge_tool`, `cvc_cache_purge_tool` |
 
 Routing rules (same content as `casee_guide`):
@@ -106,6 +106,9 @@ Routing rules (same content as `casee_guide`):
 | --- | --- |
 | only wants the latest news / one-off Q&A | `search_intelligence` (free) |
 | wants ongoing tracking, cross-time comparison, competitor watch | build a CVC: `search_cvc_companies` → `create_cvc_model` → `rebuild_cvc_model` |
+| only has a one-sentence goal | smart mode: `create_cvc_model(objective="…")` |
+| has regions / target customers / competitors / standards | precise mode: `create_cvc_model(objective_definition={mode:"precise", ...})` — the server combines 地区→客户→竞品→行业规约 |
+| is unsure which companies to search / wants an expert preset | industry template: `list_cvc_templates` → `get_cvc_template` → `create_cvc_from_template` (dry_run first) → `get_cvc_template_provision_status` |
 | already has a CVC and wants evidence by meaning | `search_with_cvc` (collect) → `semantic_search_tool` (retrieve) |
 | wants to see the result before paying for a build | open the public read-only sample `cvc_demoevbat01` (0 credit): `casee_get_cvc_dashboard` → insights; then create your own lite CVC |
 | asks whether a company is worth partnering with / risky / behind | `casee_get_enterprise_insight` (0.5 credit, `dry_run=true` first) |
@@ -122,7 +125,7 @@ Routing rules (same content as `casee_guide`):
 5. CVC builds are async: poll at most 3 times per turn, then hand off to `get_cvc_build_status` / the completion email.
 6. CVC builds have two profiles — `build_profile="lite"` (default, 1.0 credit, ETA ~300 s) and `"full"` (2.5 credits, ~600 s); the first CVC is free. Start with lite, escalate with `rebuild_cvc_model(build_profile="full")` only when needed.
 
-Two entry tools make this executable without reading 62 tool descriptions:
+Two entry tools make this executable without reading 66 tool descriptions:
 
 - `casee_guide(topic="")` — one-screen manual: tiers, decision tree, naming synonyms (`价值链` / `CVC` / `价值链检索` → which tool), free vs. paid, first-run checklist.
 - `casee_plan_task(goal, cvc_id="", budget_credits=0, max_wait_seconds=60)` — turns a natural-language goal into 2–3 options with cost, ETA, prerequisites and an `ask_user` sentence to relay verbatim. Always includes a 0-credit option.
@@ -132,7 +135,7 @@ Two entry tools make this executable without reading 62 tool descriptions:
 Paste this into the agent's system prompt / persona so it routes correctly on the first turn:
 
 ```text
-你已连接 CaSee 竞争情报 MCP（casee，62 个工具）。
+你已连接 CaSee 竞争情报 MCP（casee，66 个工具）。
 1) 用户提出目标但没指定能力时，先调用 casee_plan_task(goal=<用户原话>)，并原样转述 ask_user，让用户在 A/B/C 中选。
 2) 用户问「能做什么 / 怎么用」，或用了「价值链 / CVC / 深度研判 / 行业趋势」等别名时，先调用 casee_guide() 对齐能力与工具名。
 3) 任何收费（>0 credit）或预计超过 30 秒的操作，先说明 cost_credits / eta_seconds 并等待确认。
@@ -221,7 +224,7 @@ curl -X POST http://localhost:8100/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
-You should see all **62 tools**: the 5 query tools (`search_intelligence`, `analyze_trend`, `aggregate_intelligence`, `semantic_search_tool`, `search_with_cvc`) plus `batch_search`, CVC administration tools, full-history purge, the v1.4 report tools (templates / plan / generate / poll / share / rebuild / health), the v1.6 CVC creation tools (company search / create / job polling / build status) and the v1.7 OpenAPI coverage tools (credits / ledger / quota, report download, charts, template CRUD, CVC inspection and business insights).
+By default (`MCP_TOOL_PROFILE=core`) you should see the **18 core tools**: guidance (`casee_guide` / `casee_plan_task`), retrieval (`search_intelligence`), CVC build (`search_cvc_companies` / `create_cvc_model` / `get_cvc_creation_job` / `get_cvc_build_status`), industry templates (`list_cvc_templates` / `get_cvc_template` / `create_cvc_from_template` / `get_cvc_template_provision_status`), dashboard (`casee_get_cvc_dashboard`), boolean retrieval (`search_with_cvc`), semantic search (`semantic_search_tool`), insight (`casee_get_enterprise_insight`), reports (`list_report_templates` / `plan_report` / `generate_report` / `get_report_job`) and credits (`casee_get_credits`). Hidden tools remain callable, they are just not advertised; set `MCP_TOOL_PROFILE=full` on the server to advertise all 66 tools.
 
 #### Step 6: Run with Docker (recommended for production)
 
@@ -245,7 +248,7 @@ No installation needed. The server is already deployed and running:
 ```
 MCP endpoint : https://causalai.me:8100/mcp
 Transport    : Streamable-HTTP
-Server       : casee (62 MCP tools)
+Server       : casee (66 MCP tools)
 Backend      : CaSee Intelligence Server (auto-resolved)
 ```
 
@@ -261,7 +264,7 @@ Just grab your `CASEE_IS_API_KEY` from [https://casee.me](https://casee.me) and 
 
 ## 🧰 MCP Tools
 
-The server exposes **62 MCP Tools** for AI Agents: retrieval, CVC administration, CVC creation and end-to-end report generation — plus the two UX entry tools `casee_guide` / `casee_plan_task`.
+The server exposes **66 MCP Tools** for AI Agents: retrieval, CVC administration, CVC creation and end-to-end report generation — plus the two UX entry tools `casee_guide` / `casee_plan_task`.
 
 | Tool                          | Description                                                           | Key Parameters                                         |
 | ----------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
@@ -287,7 +290,7 @@ The server exposes **62 MCP Tools** for AI Agents: retrieval, CVC administration
 >
 > **v1.12.0 (2026-11-25):** agent UX layer — added `casee_guide` and
 > `casee_plan_task` (free, local, no backend call) so agents route from user
-> intent instead of guessing among 62 tool names; every tool advertises
+> intent instead of guessing among 66 tool names; every tool advertises
 > `_meta.tier` (T0–T3) plus cost/latency hints; responses carry at most three
 > de-duplicated `recommendations` (`tool` + `args` + `cost_credits` +
 > `eta_seconds`); structured errors include an `alternatives` array;
@@ -296,13 +299,15 @@ The server exposes **62 MCP Tools** for AI Agents: retrieval, CVC administration
 > agent. Backend adds `GET /api/v1/openapi/admin/usage-summary` and
 > client / session attribution for MCP traffic.
 >
-> **v1.13.1 (2026-11-25):** auth-plane hardening — `AUTH_KEY_PLANE_MISMATCH` is
-> now only returned when the EIRS OpenAPI probe explicitly answers `40102`; a
-> transient key-store outage (`db_unavailable`) or a proxy 401/403 without the
-> EIRS error body is treated as retryable `503 UPSTREAM_UNAVAILABLE` instead of
-> accusing the caller of using a key from the wrong plane. Plane-mismatch
-> verdicts are no longer negatively cached, so one bad lookup can no longer stick
-> for the whole TTL, and the default negative-cache TTL drops from 60 s to 15 s.
+> **v1.14.0 (2026-11-26):** aligned with the home page's three creation modes —
+> `create_cvc_model` and `search_cvc_companies` now accept `objective` (smart)
+> and `objective_definition` (precise, composed as regions → customers →
+> competitors → standards; at least one dimension required); added four industry
+> template tools `list_cvc_templates` / `get_cvc_template` /
+> `create_cvc_from_template` / `get_cvc_template_provision_status` (free
+> `dry_run` preview + one-shot confirm token, 2.5 credits, first CVC free);
+> `casee_guide` exposes `creation_modes`; core profile grows to 18 tools and the
+> total is 66.
 >
 > **v1.13.0 (2026-11-25):** CVC build profiles & zero-cost trial — `create_cvc_model`
 > and `rebuild_cvc_model` accept `build_profile="lite"` (default, 1.0 credit,
@@ -361,7 +366,7 @@ Failures keep the structured error fields below plus `ok: false`.
 | Tool | Description | Key Parameters |
 | --- | --- | --- |
 | `search_cvc_companies` | Search candidate companies for an analysis goal; creates an async job and polls up to `wait_seconds`; returns proposed products/markets/competitors and `selected=true` (all by default) | `query`, `language`, `limit`, `wait_seconds` |
-| `create_cvc_model` | Create a CVC draft (company names or objects) via an async job; returns `build_readiness`, `warnings`, `build_profile` and `next_step` | `name`, `companies`, `query_topic`, `query_type`, `build_profile` (`lite`/`full`), `overwrite`, `idempotency_key`, `wait_seconds` |
+| `create_cvc_model` | Create a CVC draft (company names or objects) via an async job; supports the three home-page creation modes; returns `creation_mode`, `build_readiness`, `warnings`, `build_profile` and `next_step` | `name`, `companies`, `objective` (smart), `objective_definition` (precise), `query_topic`, `query_type`, `build_profile` (`lite`/`full`), `overwrite`, `idempotency_key`, `wait_seconds` |
 | `get_company_search_job` | Poll a company-search job by `job_id`; `result` matches the synchronous search payload when succeeded | `job_id` |
 | `get_cvc_creation_job` | Poll a CVC-creation job by `job_id`; `result` contains `cvc_id` / `build_readiness` when succeeded | `job_id` |
 | `get_cvc_build_status` | Phase progress, current step, failure attribution and polling hints; also returns `visibility` / `is_read_only` / `owner_tenant_id` / `access_role` / `build_profile` / `eta_seconds` / `quality_status`; supports long-poll and incremental logs | `cvc_id`, `wait_seconds`, `include_logs`, `log_since` |
@@ -380,6 +385,31 @@ Failures keep the structured error fields below plus `ok: false`.
 > `casee_get_cvc_dashboard`, `search_with_cvc` or the insight tools against it to
 > show what a finished CVC looks like. Write operations on it return
 > `SCOPE_DENIED_WRITE` with `alternatives: [create your own lite CVC]`.
+
+### Three creation modes (v1.8, aligned with the web home page)
+
+| Mode | When to use | Input & flow |
+| --- | --- | --- |
+| **Smart** | The user only gives a one-sentence natural-language goal | `create_cvc_model(objective="…")` — the goal is used verbatim as the search criteria |
+| **Precise** | The user provides regions / target customers / competitors / industry standards | `create_cvc_model(objective_definition={mode:"precise", target_regions[], target_customers, target_competitors, target_industry_standards})` — the server composes **regions → customers → competitors → standards** (at least one dimension; composed text ≤200 chars, each field ≤40 chars, ≤4 regions). All-empty returns `VALIDATION_ERROR` |
+| **Industry template** | The user is unsure which companies to search, or wants an expert preset | `list_cvc_templates` → `get_cvc_template` → `create_cvc_from_template(dry_run=true)` → confirm with `confirm_token` → `get_cvc_template_provision_status` → `get_cvc_build_status` |
+
+Precise mode also applies to the pre-build company search:
+`search_cvc_companies(query="", objective_definition={...})` composes the query
+and persists the structure with the job for reuse at creation time.
+
+### Industry-template creation tools (v1.8)
+
+| Tool | Description | Key Parameters |
+| --- | --- | --- |
+| `list_cvc_templates` | Browse the template library (free): expert company lists, industry/scenario filters, provision & grant state | `industry`, `scenario`, `q`, `limit` (1-100), `offset` |
+| `get_cvc_template` | Template detail (free): company preview, `provision_state`, tenant `granted`, creation/progress endpoints | `template_id` |
+| `create_cvc_from_template` | Build from a template: `dry_run=true` only previews (no charge, returns `cost_note` + `confirm_token`); confirming idempotently grants and instantiates (202) | `template_id`, `dry_run`, `confirm`, `confirm_token` |
+| `get_cvc_template_provision_status` | Provision progress (free): `pending` / `provisioning` / `building` / `ready` / `failed` / `suspended`, with `status_label` and next step | `template_id` |
+
+> Cost: 2.5 credits for a full build; the tenant's first CVC is free. Template
+> instances are shared tenant-wide, so reusing an already-ready template does not
+> charge again; failures are refunded automatically. `dry_run` never charges.
 
 ### OpenAPI coverage tools (v1.7)
 
@@ -577,7 +607,7 @@ Fully quit (Cmd+Q / Alt+F4) and relaunch Claude Desktop so it re-reads the confi
 
 #### Step 5: Verify the tools
 
-Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **62 tools** (the 5 query tools `search_intelligence`, `analyze_trend`, `aggregate_intelligence`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
+Click the **tools (hammer) icon** next to the composer input. You should see `casee-intelligence` with its **18 core tools** (default `core` profile; set `MCP_TOOL_PROFILE=full` to advertise all 66).
 
 #### Step 6: Try it
 
@@ -650,7 +680,7 @@ Save `.workbuddy/mcp.json`, then trigger a config reload in WorkBuddy (typically
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with its **62 tools** (the 5 query tools `search_intelligence`, `analyze_trend`, `aggregate_intelligence`, `semantic_search_tool`, `search_with_cvc`, plus batch search, CVC admin/purge, report tools and CVC creation tools).
+Open the MCP tool panel. You should see `casee-intelligence` with its **18 core tools** (default `core` profile; set `MCP_TOOL_PROFILE=full` to advertise all 66).
 
 #### Step 5: Try it
 
@@ -697,13 +727,16 @@ If it does not exist, create it.
   "mcpServers": {
     "casee-intelligence": {
       "transport": "streamable-http",
-      "url": "https://causalai.me:8100/mcp"
+      "url": "https://causalai.me:8100/mcp",
+      "headers": { "X-API-Key": "casee_xxx" }
     }
   }
 }
 ```
 
-For self-hosted: point `url` to `http://127.0.0.1:8100/mcp` instead.
+For self-hosted: point `url` to `http://127.0.0.1:8100/mcp` and keep the `X-API-Key` header.
+
+> **`headers` is required**: the managed gateway now defaults to `MCP_REQUIRE_API_KEY=true`. Without `X-API-Key`, `tools/list` fails with 401 and no business call is ever recorded.
 
 #### Step 3: Reload / restart Trae Work
 
@@ -711,7 +744,7 @@ Reload the MCP configuration (or restart Trae Work) so it picks up the new serve
 
 #### Step 4: Verify the tools
 
-Open the MCP tool panel. You should see `casee-intelligence` with **62 tools**. Enable the ones you need.
+Open the MCP tool panel. You should see `casee-intelligence` with **18 core tools** (default `core` profile, covering the full main chain; set `MCP_TOOL_PROFILE=full` for all 66).
 
 #### Step 5: Ask for intelligence
 
@@ -947,7 +980,7 @@ Product modules referenced by `details.product` / `details.module_id`:
 
 ### Transport-level authentication errors
 
-When the Streamable-HTTP gateway is enabled (`MCP_REQUIRE_API_KEY=true`), protected JSON-RPC methods fail before reaching a tool:
+The Streamable-HTTP gateway enforces `MCP_REQUIRE_API_KEY=true` by default; protected JSON-RPC methods fail before reaching a tool (the error `data` carries a one-step `hint` / `action`):
 
 | HTTP | `error.data.error_code` | Meaning |
 |---|---|---|
@@ -995,7 +1028,10 @@ curl -X POST http://localhost:8100/mcp \
 | `CASEE_PORTAL_BASE_URL` | No    | derived                      | Portal origin used for absolute share/report links |
 | `CASEE_REPORTS_TIMEOUT` | No    | `120`                        | Read timeout (seconds) for report/plan calls |
 | `MCP_JSON_RESPONSE`  | No       | `false`                      | `true` returns a single JSON response instead of SSE (recommended for strict clients) |
-| `MCP_REQUIRE_API_KEY` | No      | `false`                      | Enforce `X-API-Key` on the streamable-HTTP gateway |
+| `MCP_REQUIRE_API_KEY` | No      | `true`                       | Enforce `X-API-Key` on the streamable-HTTP gateway. When disabled, every request falls back to `CASEE_IS_API_KEY` and all tenants collapse into the deployment tenant; only single-tenant stdio setups should set `false` |
+| `MCP_TOOL_PROFILE`    | No      | `core`                       | `tools/list` scope: `core` advertises the 17 main-chain tools (hidden tools stay callable), `full` advertises all 66 |
+| `MCP_CONFIRM_TOKEN_TTL` | No    | `1800`                       | Paid-confirmation token TTL (seconds); a `confirm_token` from `dry_run` executes without re-probing within this window |
+| `MCP_CONFIRM_SECRET`  | No      | falls back to `CASEE_IS_API_KEY` | Signing secret for confirmation tokens; set explicitly for multiple replicas or key rotation |
 
 ***
 

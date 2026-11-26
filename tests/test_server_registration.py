@@ -36,6 +36,11 @@ EXPECTED_TOOLS = {
     "get_company_search_job",
     "get_cvc_creation_job",
     "get_cvc_build_status",
+    # v1.8 industry-template creation mode
+    "list_cvc_templates",
+    "get_cvc_template",
+    "create_cvc_from_template",
+    "get_cvc_template_provision_status",
     # v1.7 OpenAPI coverage: billing / quota
     "casee_get_credits",
     "casee_get_credit_ledger",
@@ -87,7 +92,12 @@ def _schema(tool):
 
 
 class TestToolRegistration:
-    """All 60 documented tools must be registered with usable schemas."""
+    """All 66 documented tools must be registered with usable schemas."""
+
+    @pytest.fixture(autouse=True)
+    def _full_profile(self, monkeypatch):
+        """注册表断言针对完整目录，固定 full 以免被默认 core 过滤影响。"""
+        monkeypatch.setenv("MCP_TOOL_PROFILE", "full")
 
     async def test_all_tools_registered(self):
         tools = await mcp.list_tools()
@@ -96,7 +106,7 @@ class TestToolRegistration:
         extra = names - EXPECTED_TOOLS
         assert not missing, f"missing tools: {missing}"
         assert not extra, f"unexpected tools: {extra}"
-        assert len(names) == 62
+        assert len(names) == 66
 
     async def test_every_tool_has_description_and_schema(self):
         for tool in await mcp.list_tools():
@@ -150,6 +160,75 @@ class TestToolRegistration:
         assert rebuild["dry_run"].get("default") is True
         assert rebuild["backup"].get("default") is True
 
+    async def test_creation_modes_exposed_in_schema(self):
+        """建链三种方式（智能推理 / 精确定义 / 行业模版）必须可从工具签名发现。"""
+        tools = {t.name: t for t in await mcp.list_tools()}
+        create_props = _schema(tools["create_cvc_model"])["properties"]
+        assert "objective" in create_props
+        assert "objective_definition" in create_props
+        assert "create_cvc_from_template" in tools
+        template_props = _schema(tools["create_cvc_from_template"])["properties"]
+        assert template_props["dry_run"].get("default") is True
+        assert template_props["confirm"].get("default") is False
+        assert "template_id" in _schema(tools["get_cvc_template"]).get("required", [])
+        assert "template_id" in _schema(
+            tools["get_cvc_template_provision_status"]).get("required", [])
+        list_props = _schema(tools["list_cvc_templates"])["properties"]
+        assert {"industry", "scenario", "q", "limit", "offset"} <= set(list_props)
+
+
+class TestToolProfile:
+    """MCP_TOOL_PROFILE 控制 tools/list 暴露范围（调用能力不受影响）。"""
+
+    async def test_default_profile_is_core(self, monkeypatch):
+        monkeypatch.delenv("MCP_TOOL_PROFILE", raising=False)
+        from casee_mcp_server.server import (
+            CORE_TOOL_NAMES,
+            all_tool_names,
+            get_tool_profile,
+            visible_tool_names,
+        )
+
+        assert get_tool_profile() == "core"
+        visible = {t.name for t in await mcp.list_tools()}
+        assert visible == set(visible_tool_names())
+        assert visible <= CORE_TOOL_NAMES
+        assert 10 <= len(visible) <= 18
+        # 隐藏工具仍在注册表中，可被显式调用
+        assert len(all_tool_names()) == 66
+
+    async def test_full_profile_exposes_everything(self, monkeypatch):
+        monkeypatch.setenv("MCP_TOOL_PROFILE", "full")
+        from casee_mcp_server.server import all_tool_names
+
+        assert {t.name for t in await mcp.list_tools()} == set(all_tool_names())
+
+    async def test_invalid_profile_falls_back_to_core(self, monkeypatch):
+        monkeypatch.setenv("MCP_TOOL_PROFILE", "bogus")
+        from casee_mcp_server.server import get_tool_profile
+
+        assert get_tool_profile() == "core"
+
+    def test_guide_reports_hidden_tools(self, monkeypatch):
+        monkeypatch.delenv("MCP_TOOL_PROFILE", raising=False)
+        from casee_mcp_server.guidance import casee_guide
+
+        profile = casee_guide()["data"]["tool_profile"]
+        assert profile["profile"] == "core"
+        assert profile["visible_tools"] <= profile["total_tools"]
+        assert profile["hidden_tools"]
+        assert profile["enable_full"] == "MCP_TOOL_PROFILE=full"
+
+    def test_guide_exposes_three_creation_modes(self):
+        """智能推理 / 精确定义 / 行业模版：引导必须能区分三种建链路径。"""
+        from casee_mcp_server.guidance import casee_guide, casee_plan_task
+
+        data = casee_guide("cvc")["data"]
+        modes = {m["mode"] for m in data["creation_modes"]["modes"]}
+        assert modes == {"smart", "precise", "template"}
+        plan = casee_plan_task("持续跟踪长时储能进展")["data"]
+        assert "creation_modes" in plan
+
 
 class TestPromptRegistration:
     """v1.6 exposes the CVC-creation recipe alongside v1.4 report recipes."""
@@ -164,8 +243,13 @@ class TestPromptRegistration:
         text = result.messages[0].content.text
         for tool_name in ("search_cvc_companies", "get_company_search_job",
                           "create_cvc_model", "get_cvc_creation_job",
-                          "rebuild_cvc_model", "get_cvc_build_status"):
+                          "rebuild_cvc_model", "get_cvc_build_status",
+                          "list_cvc_templates", "create_cvc_from_template",
+                          "get_cvc_template_provision_status"):
             assert tool_name in text
+        # 三种建链方式都必须出现在提示词里
+        assert "objective_definition" in text
+        assert "smart" in text and "precise" in text and "模版" in text
         assert "wait_seconds" in text
         assert "默认全选" in text
         assert "10 分钟" in text

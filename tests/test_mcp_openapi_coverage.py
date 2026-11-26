@@ -680,6 +680,32 @@ class TestCvcInspection:
         assert ot.casee_get_customer_insight(CVC, "Bank")["ok"] is True
         assert ot.casee_get_market_insight(CVC, "EV", max_age_days=0)["ok"] is False
 
+    def test_dry_run_returns_executable_confirm_token(self, monkeypatch):
+        """dry_run 下发令牌；同参数带令牌可直接执行，免重复预检/确认。"""
+        def handler(request):
+            params = dict(request.url.params)
+            return _ok({"dry_run": params.get("dry_run") == "true"})
+
+        _install(monkeypatch, handler)
+        first = ot.casee_get_enterprise_insight(CVC, "Acme")
+        token = first["data"]["confirm_token"]
+        assert token
+        assert first["data"]["confirm_call"]["args"]["confirm_token"] == token
+        assert first["data"]["confirm_token_expires_in"] > 0
+
+        # 令牌绑定业务参数：换公司名不可复用
+        other = ot.casee_get_enterprise_insight(
+            CVC, "Other", dry_run=False, confirm_token=token,
+        )
+        assert other["data"].get("confirmed") is not True
+
+        # 同参数 + 有效令牌 => 直接执行并标记 confirmed
+        second = ot.casee_get_enterprise_insight(
+            CVC, "Acme", dry_run=False, confirm_token=token,
+        )
+        assert second["data"]["confirmed"] is True
+        assert second["data"]["cost_note"]["confirmation"] == "confirm_token"
+
 
 class TestArtifactLimits:
     def test_response_over_limit_is_rejected(self, monkeypatch):
@@ -721,3 +747,138 @@ class TestProtocolLevel:
         assert payload["error_code"] == "TEMPLATE_TOO_LARGE"
         assert payload["details"]["fallback_tool"] == "casee_download_report"
 
+
+
+# ----------------------------------------------- industry template creation
+
+
+class TestCvcTemplateCreation:
+    """第三种建链方式：模版浏览 → 预检（免费）→ 确认实例化 → 准备状态轮询。"""
+
+    def test_list_templates_passes_filters(self, monkeypatch):
+        captured = {}
+
+        def handler(request):
+            captured["path"] = request.url.path
+            captured["params"] = dict(request.url.params)
+            return _ok({"total": 1, "limit": 5, "offset": 0, "items": [{
+                "id": "tpl-energy", "name": "长时储能竞争格局",
+                "companies_preview": ["大连融科"], "provision_state": "not_provisioned",
+            }]})
+
+        _install(monkeypatch, handler)
+        result = ot.list_cvc_templates(industry="新能源", q="储能", limit=5)
+
+        assert result["ok"] is True
+        assert captured["path"].endswith("/api/v1/openapi/cvc-templates")
+        assert captured["params"] == {
+            "limit": "5", "offset": "0", "industry": "新能源", "q": "储能",
+        }
+        assert result["data"]["next_actions"][0]["tool"] == "get_cvc_template"
+        assert ot.list_cvc_templates(limit=0)["ok"] is False
+        assert ot.list_cvc_templates(offset=-1)["ok"] is False
+
+    def test_empty_list_suggests_smart_search(self, monkeypatch):
+        _install(monkeypatch, lambda req: _ok({"total": 0, "limit": 20, "offset": 0,
+                                               "items": []}))
+        result = ot.list_cvc_templates(q="冷门行业")
+        assert result["ok"] is True
+        assert result["data"]["next_actions"][0]["tool"] == "search_cvc_companies"
+
+    def test_get_template_detail(self, monkeypatch):
+        captured = {}
+
+        def handler(request):
+            captured["path"] = request.url.path
+            return _ok({"id": "tpl-energy", "name": "长时储能竞争格局",
+                        "granted": False, "provision_state": "not_provisioned"})
+
+        _install(monkeypatch, handler)
+        result = ot.get_cvc_template("tpl-energy")
+
+        assert result["ok"] is True
+        assert captured["path"].endswith("/cvc-templates/tpl-energy")
+        assert result["data"]["name"] == "长时储能竞争格局"
+        assert result["data"]["next_actions"][0]["tool"] == "create_cvc_from_template"
+        assert ot.get_cvc_template("")["ok"] is False
+        assert ot.get_cvc_template("a/b")["ok"] is False
+
+    def test_dry_run_then_confirm_creates_and_charges(self, monkeypatch):
+        calls = []
+
+        def handler(request):
+            calls.append((request.method, request.url.path))
+            if request.method == "GET":
+                return _ok({"id": "tpl-energy", "name": "长时储能竞争格局",
+                            "granted": False, "provision_state": "not_provisioned",
+                            "companies_preview": ["大连融科"]})
+            return httpx.Response(202, json={"code": 200, "message": "ok", "data": {
+                "cvc_id": "cvc_tpl0001",
+                "instance_status": "pending",
+                "provision_eta_seconds": 90,
+                "is_first_use": True,
+                "already_granted": False,
+                "build_status_url": "/api/v1/openapi/cvc-models/cvc_tpl0001/build-status",
+                "creation_mode": "template",
+                "template_id": "tpl-energy",
+            }})
+
+        _install(monkeypatch, handler)
+        preview = ot.create_cvc_from_template("tpl-energy")
+
+        assert preview["ok"] is True
+        assert preview["data"]["requires_confirm"] is True
+        assert preview["data"]["cost_note"]["charged_on_confirm"] is True
+        token = preview["data"]["confirm_token"]
+        assert token
+        # dry_run 只读模版详情，不实例化
+        assert calls == [("GET", "/api/v1/openapi/cvc-templates/tpl-energy")]
+
+        created = ot.create_cvc_from_template(
+            "tpl-energy", dry_run=False, confirm=True, confirm_token=token)
+        assert created["ok"] is True
+        assert created["data"]["cvc_id"] == "cvc_tpl0001"
+        assert created["data"]["creation_mode"] == "template"
+        assert created["data"]["next_actions"][0]["tool"] == \
+            "get_cvc_template_provision_status"
+        assert calls[-1] == (
+            "POST", "/api/v1/openapi/cvc-templates/tpl-energy/creation-jobs",
+        )
+
+    def test_confirm_flag_skips_preview(self, monkeypatch):
+        _install(monkeypatch, lambda req: httpx.Response(202, json={
+            "code": 200, "message": "ok",
+            "data": {"cvc_id": "cvc_tpl0002", "creation_mode": "template"},
+        }))
+        created = ot.create_cvc_from_template("tpl-energy", dry_run=False, confirm=True)
+        assert created["ok"] is True
+        assert created["data"]["cvc_id"] == "cvc_tpl0002"
+
+    def test_dry_run_does_not_charge_when_already_granted(self, monkeypatch):
+        _install(monkeypatch, lambda req: _ok({
+            "id": "tpl-energy", "name": "已就绪模版",
+            "granted": True, "provision_state": "ready",
+        }))
+        preview = ot.create_cvc_from_template("tpl-energy")
+        assert preview["data"]["cost_note"]["already_granted"] is True
+        assert preview["data"]["cost_note"]["charged_on_confirm"] is False
+        assert "confirm_token" in preview["data"]
+
+    def test_provision_status_next_steps(self, monkeypatch):
+        statuses = iter(["building", "failed"])
+
+        def handler(request):
+            return _ok({"template_id": "tpl-energy", "cvc_id": "cvc_tpl0001",
+                        "instance_status": next(statuses), "build_progress": 40,
+                        "current_phase": "provision"})
+
+        _install(monkeypatch, handler)
+        building = ot.get_cvc_template_provision_status("tpl-energy")
+        assert building["ok"] is True
+        assert building["data"]["status_label"] == "构建中"
+        assert "稍后" in building["data"]["user_message"]
+
+        failed = ot.get_cvc_template_provision_status("tpl-energy")
+        assert failed["data"]["status_label"] == "实例准备失败"
+        assert failed["data"]["next_actions"][0]["tool"] == "create_cvc_from_template"
+        assert ot.get_cvc_template_provision_status("")["ok"] is False

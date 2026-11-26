@@ -9,8 +9,10 @@ Keys are verified against **both** CaSee planes with short positive/negative
 caches, so revocation propagates within the TTL:
 
 * is-server (``CASEE_API_BASE_URL`` ``/v1/stats``) — retrieval tools;
-* EIRS OpenAPI (``CASEE_OPENAPI_BASE_URL`` ``/credits``) — report and
+* EIRS OpenAPI (``CASEE_OPENAPI_BASE_URL`` ``/keys/whoami``) — report and
   CVC-management tools, which only accept keys registered in the EIRS store.
+  ``/keys/whoami`` is a lightweight identity probe (no credits/quota lookup),
+  so gateway verification never shows up as balance-polling traffic.
 
 A key that passes is-server but is unknown to EIRS (typical ``sk_...`` keys
 created directly on is-server) is rejected at the gateway with
@@ -46,11 +48,6 @@ _VERDICT_PLANE_MISMATCH = "plane_mismatch"
 # means the key is valid for is-server but was never registered in EIRS.
 _EIRS_CODE_KEY_NOT_FOUND = 40102
 
-# EIRS ``details.reason`` for a transient key-store outage. Such a response must
-# never be treated as "key absent from EIRS" (plane mismatch): the record may
-# well exist and only the lookup failed.
-_EIRS_REASON_DB_UNAVAILABLE = "db_unavailable"
-
 
 def _env_bool(name: str, default: bool = False) -> bool:
     return os.environ.get(name, str(default)).strip().lower() in (
@@ -73,7 +70,7 @@ class ApiKeyAuthMiddleware:
         openapi_base_url: str = "",
         static_allowlist: frozenset | None = None,
         cache_ttl: float = 300.0,
-        neg_cache_ttl: float = 15.0,
+        neg_cache_ttl: float = 60.0,
         verify_timeout: float = 5.0,
     ) -> None:
         self.app = app
@@ -175,6 +172,7 @@ class ApiKeyAuthMiddleware:
                 "the X-API-Key header.",
                 error_code="AUTH_MISSING_KEY",
                 hint="Set the X-API-Key header with a valid CaSee API key.",
+                action="provide_api_key",
                 retryable=False,
             )
         if api_key in self.static_allowlist:
@@ -189,6 +187,7 @@ class ApiKeyAuthMiddleware:
                 retry_after=10,
                 error_code="UPSTREAM_UNAVAILABLE",
                 hint="The API key verification service is unavailable; retry later.",
+                action="retry_later",
                 retryable=True,
             )
         if verdict == _VERDICT_PLANE_MISMATCH:
@@ -203,6 +202,7 @@ class ApiKeyAuthMiddleware:
                 hint="Use the casee_... tenant key from https://www.casee.me "
                      "(系统配置 → API Keys); it is registered on both planes. "
                      "Keys created directly on is-server (sk_...) are not.",
+                action="rotate_key",
                 retryable=False,
             )
         logger.info("reject: invalid api key ip=%s",
@@ -212,6 +212,7 @@ class ApiKeyAuthMiddleware:
             "Invalid or revoked API key.",
             error_code="AUTH_INVALID_KEY",
             hint="Check CASEE_IS_API_KEY or create a new API key.",
+            action="rotate_key",
             retryable=False,
         )
 
@@ -224,10 +225,7 @@ class ApiKeyAuthMiddleware:
             if now - ts < ttl:
                 return verdict
         verdict = await self._verify_planes(key)
-        # ``plane_mismatch`` is never cached: it depends on a negative lookup in
-        # the EIRS store, which can be wrong during a transient DB outage and
-        # would then stick for the whole negative TTL.
-        if verdict is not None and verdict != _VERDICT_PLANE_MISMATCH:
+        if verdict is not None:
             self._cache[key] = (verdict, now)
             if len(self._cache) > 1024:
                 # Basic bound: drop everything older than 15 min.
@@ -257,46 +255,41 @@ class ApiKeyAuthMiddleware:
             return _VERDICT_OK
 
         eirs_result = await self._probe_plane(
-            f"{self.openapi_base_url}/credits", key, "eirs-openapi",
+            f"{self.openapi_base_url}/keys/whoami", key, "eirs-openapi",
         )
         if eirs_result["verdict"] == _VERDICT_OK:
             return _VERDICT_OK
         if eirs_result["verdict"] == _VERDICT_INVALID:
-            # A transient EIRS key-store outage (``db_unavailable``) says nothing
-            # about the key itself: retry instead of accusing the caller of using
-            # a key from the wrong plane.
-            if eirs_result.get("reason") == _EIRS_REASON_DB_UNAVAILABLE:
-                logger.warning(
-                    "eirs-openapi key store unavailable; retry as transient"
-                )
-                return None
-            # Only an explicit 40102 proves the key is absent from the EIRS
-            # store; other auth codes (40103 expired / 40302 disabled) are
-            # plain invalid keys.
-            if eirs_result["code"] == _EIRS_CODE_KEY_NOT_FOUND:
+            # 40102 means the key is simply absent from the EIRS store; other
+            # auth errors (expired / disabled / scope) are plain invalid keys.
+            if eirs_result["code"] in (None, _EIRS_CODE_KEY_NOT_FOUND):
                 return _VERDICT_PLANE_MISMATCH
-            # A 401/403 without the EIRS error body usually comes from an
-            # intermediate proxy/Gateway, not from the key store: retry.
-            if eirs_result["code"] is None:
-                return None
             return _VERDICT_INVALID
         return None
+
+    @staticmethod
+    def _probe_headers(key: str) -> dict[str, str]:
+        """鉴权探测专用请求头：显式标注用途，服务端据此归入「预检」而非业务调用。"""
+        return {
+            "X-API-Key": key,
+            "X-Casee-Call-Purpose": "auth_probe",
+            "X-Casee-Client": "casee-mcp-server",
+        }
 
     async def _probe_plane(self, url: str, key: str, label: str) -> dict:
         """GET one verification probe and classify the response."""
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self.verify_timeout)
         try:
-            resp = await self._client.get(url, headers={"X-API-Key": key})
+            resp = await self._client.get(url, headers=self._probe_headers(key))
         except httpx.HTTPError as exc:
             logger.warning("%s key verify error: %s", label, exc)
-            return {"verdict": None, "code": None, "reason": None}
+            return {"verdict": None, "code": None}
 
         if resp.status_code == 200:
-            return {"verdict": _VERDICT_OK, "code": None, "reason": None}
+            return {"verdict": _VERDICT_OK, "code": None}
         if resp.status_code in (401, 403):
             code = None
-            reason = None
             try:
                 body = resp.json()
             except ValueError:
@@ -305,19 +298,14 @@ class ApiKeyAuthMiddleware:
                 raw_code = body.get("code")
                 if isinstance(raw_code, int):
                     code = raw_code
-                details = body.get("details")
-                if isinstance(details, dict) and isinstance(
-                    details.get("reason"), str
-                ):
-                    reason = details["reason"]
-            logger.info("%s rejected key status=%s code=%s reason=%s",
-                        label, resp.status_code, code, reason)
-            return {"verdict": _VERDICT_INVALID, "code": code, "reason": reason}
+            logger.info("%s rejected key status=%s code=%s",
+                        label, resp.status_code, code)
+            return {"verdict": _VERDICT_INVALID, "code": code}
 
         logger.warning(
             "%s key verify unexpected status=%s", label, resp.status_code
         )
-        return {"verdict": None, "code": None, "reason": None}
+        return {"verdict": None, "code": None}
 
     # ------------------------------------------------------------- helpers
     @staticmethod
@@ -345,6 +333,7 @@ class ApiKeyAuthMiddleware:
         retry_after: int | None = None,
         error_code: str = "",
         hint: str = "",
+        action: str = "",
         retryable: bool = False,
     ):
         headers = {"WWW-Authenticate": 'ApiKey realm="casee-mcp"'}
@@ -357,6 +346,7 @@ class ApiKeyAuthMiddleware:
                 error["data"] = {
                     "error_code": error_code,
                     "hint": hint,
+                    "action": action,
                     "retryable": retryable,
                 }
             resp = JSONResponse(
@@ -379,9 +369,12 @@ def build_authenticated_app(mcp_server, *, path: str, json_response: bool = Fals
     app = mcp_server.streamable_http_app(
         streamable_http_path=path, host="0.0.0.0", json_response=json_response,
     )
-    if not _env_bool("MCP_REQUIRE_API_KEY", False):
+    if not _env_bool("MCP_REQUIRE_API_KEY", True):
         logger.warning(
-            "MCP gateway API-key auth DISABLED (MCP_REQUIRE_API_KEY not true)"
+            "MCP gateway API-key auth DISABLED (MCP_REQUIRE_API_KEY=false); "
+            "every request falls back to the deployment key, so tenant "
+            "attribution collapses. Only do this for single-tenant stdio-like "
+            "deployments."
         )
         return app
     allowlist = frozenset(
@@ -405,7 +398,7 @@ def build_authenticated_app(mcp_server, *, path: str, json_response: bool = Fals
         openapi_base_url=openapi_base,
         static_allowlist=allowlist,
         cache_ttl=float(os.environ.get("MCP_AUTH_CACHE_TTL", "300")),
-        neg_cache_ttl=float(os.environ.get("MCP_AUTH_NEG_CACHE_TTL", "15")),
+        neg_cache_ttl=float(os.environ.get("MCP_AUTH_NEG_CACHE_TTL", "60")),
         verify_timeout=float(os.environ.get("MCP_AUTH_VERIFY_TIMEOUT", "5")),
     )
     logger.info(

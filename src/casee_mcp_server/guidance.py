@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .server import _report_invalid, mcp
+from .server import _report_invalid, mcp, tool_profile_summary
 
 
 DEMO_PUBLIC_CVC_ID = "cvc_demoevbat01"
@@ -38,6 +38,8 @@ _GUIDE: Dict[str, Any] = {
                 "search_intelligence", "casee_home_overview", "casee_get_credits",
                 "casee_get_cvc_dashboard", "casee_get_market_trends",
                 "list_report_templates", "casee_list_cvc_companies",
+                "list_cvc_templates", "get_cvc_template",
+                "get_cvc_template_provision_status",
             ],
         },
         {
@@ -53,7 +55,8 @@ _GUIDE: Dict[str, Any] = {
             "label": "需要承诺（先说明成本与时长，得到确认再执行）",
             "cost_credits": "0.5-2.5",
             "eta": "8 秒 - 10 分钟（快速建链 lite ≈3-5 分钟 / 全量 full ≈10 分钟）",
-            "tools": ["create_cvc_model", "rebuild_cvc_model",
+            "tools": ["create_cvc_model", "create_cvc_from_template",
+                      "rebuild_cvc_model",
                       "casee_get_enterprise_insight", "casee_get_market_insight",
                       "casee_get_customer_insight", "generate_report"],
         },
@@ -68,6 +71,10 @@ _GUIDE: Dict[str, Any] = {
     "decision_tree": [
         {"if": "只想看最近发生了什么 / 一次性问答", "then": "search_intelligence（免费）"},
         {"if": "要持续跟踪、跨时间对比、盯竞争对手", "then": "建链：search_cvc_companies → create_cvc_model（build_profile=lite 快速建链 1.0 credit / full 2.5 credit）"},
+        {"if": "只知道一句目标 / 手上有地区、客户、竞品、行业规约",
+         "then": "建链时选方式：智能推理传 objective；精确定义传 objective_definition（四维组合，地区→客户→竞品→行业规约）"},
+        {"if": "不确定该搜哪些公司 / 想复用专家行业口径 / 想看现成案例",
+         "then": "行业模版：list_cvc_templates → get_cvc_template → create_cvc_from_template（先 dry_run 预检，2.5 credit，首个 CVC 免费）→ get_cvc_template_provision_status → get_cvc_build_status"},
         {"if": "还没想好要不要建链 / 想先看效果", "then": f"直接看公共演示样本 cvc_id={DEMO_PUBLIC_CVC_ID}（0 credit，只读）"},
         {"if": "已有价值链，要按语义找证据", "then": "search_with_cvc（收集）→ semantic_search_tool（检索）"},
         {"if": "要判断一家公司值不值得合作 / 风险 / 差距", "then": "casee_get_enterprise_insight（0.5 credit，先 dry_run=true）"},
@@ -75,6 +82,44 @@ _GUIDE: Dict[str, Any] = {
         {"if": "要知道我们自己的客户在想什么", "then": "casee_get_customer_insight（需 cvc_id + 对应模块）"},
         {"if": "要交付报告 / PPT / 图表", "then": "list_report_templates → plan_report → generate_report"},
     ],
+    "creation_modes": {
+        "note": "建链有三种方式（与门户主页一致）：按用户输入选择，不要默认只走智能推理。",
+        "modes": [
+            {
+                "mode": "smart",
+                "label": "智能推理",
+                "when": "用户只给了一句自然语言目标（如「分析长时储能竞争态势」）",
+                "steps": ["search_cvc_companies(query=目标)", "create_cvc_model(objective=目标)"],
+                "cost_credits": 2.5,
+                "eta": "构建约 3-10 分钟（lite 1.0 credit ≈3-5 分钟）",
+            },
+            {
+                "mode": "precise",
+                "label": "精确定义",
+                "when": "用户给出地区 / 目标客户 / 竞品 / 行业规约中的任意一项",
+                "steps": ["create_cvc_model(objective_definition={mode:'precise', ...})"],
+                "rules": ("四维至少一项；服务端按 地区→客户→竞品→行业规约 组合；"
+                          "组合文本 ≤200 字，单字段 ≤40 字，地区 ≤4 个"),
+                "cost_credits": 2.5,
+                "eta": "构建约 3-10 分钟（lite 1.0 credit ≈3-5 分钟）",
+            },
+            {
+                "mode": "template",
+                "label": "行业模版",
+                "when": "用户不确定搜哪些公司 / 想复用专家行业口径 / 想看现成的行业案例",
+                "steps": [
+                    "list_cvc_templates（免费浏览）",
+                    "get_cvc_template（免费看企业清单与准备状态）",
+                    "create_cvc_from_template(dry_run=true) → 用户确认后 confirm=true",
+                    "get_cvc_template_provision_status（5 秒轮询至 ready/failed）",
+                    "get_cvc_build_status（看构建阶段）",
+                ],
+                "cost_credits": 2.5,
+                "eta": "实例秒级返回，构建约 3-10 分钟；完成发邮件",
+                "note": "租户首个 CVC 免费；模版实例全租户共享，已就绪的模版不重复扣费",
+            },
+        ],
+    },
     "naming": {
         "价值链 / 竞争价值链模型 / CVC / 产业竞争模型": "同一个 cvc_model",
         "价值链检索 / 语义检索 / 深度检索 / CVC 检索": "semantic_search_tool",
@@ -86,19 +131,35 @@ _GUIDE: Dict[str, Any] = {
         "free": ["search_intelligence", "analyze_trend", "aggregate_intelligence",
                  "casee_get_cvc_dashboard", "casee_get_market_trends",
                  "casee_get_credits", "casee_get_quota", "list_report_templates",
-                 "plan_report"],
+                 "plan_report", "list_cvc_templates", "get_cvc_template",
+                 "get_cvc_template_provision_status"],
         "paid": {
             "create_cvc_model": "2.5 credits（full，约 10 分钟）/ 1.0 credit（lite 快速建链，约 3-5 分钟）；每个租户首条免费",
+            "create_cvc_from_template": "2.5 credits（模版实例化 + 共享构建）；每个租户首条 CVC 免费；已就绪模版不重复扣费",
             "casee_get_enterprise_insight": "0.5 credit/次",
             "casee_get_market_insight": "0.5 credit/次",
             "casee_get_customer_insight": "0.5 credit/次",
             "generate_report": "1.0 credit/次",
         },
     },
+    "free_first": {
+        "why": "第一步先做一次 0 credit 的免费检索，确认情报覆盖与质量，再决定是否建链或购买洞察。",
+        "try_this": {
+            "tool": "search_intelligence",
+            "args": {"q": "固态电池 量产 进展", "days": 30},
+            "cost_credits": 0,
+            "eta_seconds": 8,
+        },
+        "next_if_good": "需要持续跟踪再走建链：search_cvc_companies → create_cvc_model（lite 快速建链 1.0 credit，首条免费）。",
+    },
     "first_time_checklist": [
-        "调用 casee_get_credits 看余额与首条 CVC 免费额度",
-        "调用 casee_home_overview 看已有价值链、构建中任务与可用能力",
-        "需要建链时先 search_cvc_companies 确认公司主体，再 create_cvc_model",
+        "第一步：调用 search_intelligence（免费，0 credit）看最近 30 天的高可信资讯，确认情报覆盖",
+        "想看已经建好的效果：casee_get_cvc_dashboard（公共样本 cvc_id=cvc_demoevbat01，0 credit）",
+        "准备建链前再用 casee_get_credits 看余额与首条 CVC 免费额度",
+        "需要建链时先 search_cvc_companies 确认公司主体，再 create_cvc_model"
+        "（智能推理传 objective；精确定义传 objective_definition 四维）",
+        "不确定搜哪些公司时走行业模版：list_cvc_templates → create_cvc_from_template",
+        "（2.5 credits，首个 CVC 免费；先 dry_run 预检拿 confirm_token，再确认执行）",
         "建链默认走 lite 快速建链（约 3-5 分钟，1.0 credit）+ 完成邮件；需要全量再 rebuild 成 full",
     ],
     "hard_rules": [
@@ -126,9 +187,10 @@ def casee_guide(topic: str = "") -> dict:
 
     DO NOT USE WHEN: 用户已经明确指定对象和动作，直接调用对应工具即可。
 
-    COST: 0 credit；无副作用。RETURNS: 能力分层、决策树、命名对照、免费清单、
-    首次使用清单与硬性规则。NEXT: 按 decision_tree 选择工具，或在不确定时调用
-    casee_plan_task 让服务端给出 2-3 个方案。
+    COST: 0 credit；无副作用。RETURNS: 能力分层、决策树、建链三种方式
+    （智能推理 / 精确定义 / 行业模版）、命名对照、免费清单、首次使用清单与硬性规则。
+    NEXT: 按 decision_tree 选择工具，或在不确定时调用 casee_plan_task 让服务端给出
+    2-3 个方案。
 
     Args:
         topic: 可选，聚焦主题（如 cvc / insight / report）；留空返回完整指南
@@ -137,12 +199,13 @@ def casee_guide(topic: str = "") -> dict:
     topic_key = (topic or "").strip().lower()
     if topic_key:
         buckets = {
-            "cvc": ["decision_tree", "first_time_checklist", "free_vs_paid"],
+            "cvc": ["decision_tree", "first_time_checklist", "free_vs_paid",
+                    "creation_modes"],
             "insight": ["decision_tree", "free_vs_paid", "naming"],
             "report": ["decision_tree", "free_vs_paid", "capability_tiers"],
         }
         tree_hints = {
-            "cvc": ("建链", "价值链", "语义", "cvc"),
+            "cvc": ("建链", "价值链", "语义", "cvc", "模版"),
             "insight": ("洞察", "研判", "市场", "趋势"),
             "report": ("报告", "PPT", "图表", "deck"),
         }
@@ -155,6 +218,8 @@ def casee_guide(topic: str = "") -> dict:
                     row for row in data["decision_tree"]
                     if any(h in f"{row.get('if', '')} {row.get('then', '')}" for h in hints)
                 ]
+    # 工具分层信息始终返回：告诉 Agent 当前可见工具范围，以及如何拿到完整目录。
+    data["tool_profile"] = tool_profile_summary()
     return {"ok": True, "data": data, "meta": {"tier": "T0", "cost_credits": 0}}
 
 
@@ -229,7 +294,8 @@ def _build_option(goal: str) -> dict:
             {"tool": "search_cvc_companies", "args": {"query": goal, "limit": 8}},
             {"tool": "create_cvc_model",
              "args": {"name": f"{goal}价值链", "companies": [{"name": goal}],
-                      "query_topic": goal, "build_profile": "lite"}},
+                      "objective": goal, "query_topic": goal,
+                      "build_profile": "lite"}},
         ],
         cost=1.0,
         eta=300,
@@ -405,6 +471,9 @@ def casee_plan_task(
         "intent": intent,
         "understanding": understanding,
         "options": options,
+        # 建链方式与主页一致：智能推理 / 精确定义 / 行业模版。
+        # 用户说「不知道搜哪些公司」或「有没有现成模版」时，按 creation_modes.template 走。
+        "creation_modes": _GUIDE["creation_modes"],
         "ask_user": (
             f"你更想要 {options[0]['option_id']}（{options[0]['title']}）"
             + (f" 还是 {options[1]['option_id']}（{options[1]['title']}）？"
